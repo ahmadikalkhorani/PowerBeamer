@@ -1,0 +1,178 @@
+name: Release PowerBeamer
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos-arm64:
+    name: Build macOS (Apple Silicon arm64)
+    runs-on: macos-14
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Build Binary
+        run: cargo build --release --target aarch64-apple-darwin
+
+      - name: Build macOS App Bundle
+        run: |
+          mkdir -p target/PowerBeamer.app/Contents/{MacOS,Resources}
+          cp target/aarch64-apple-darwin/release/presenter target/PowerBeamer.app/Contents/MacOS/powerbeamer
+          ln -s powerbeamer target/PowerBeamer.app/Contents/MacOS/presenter
+          if [ -f "libpdfium.dylib" ]; then
+            cp libpdfium.dylib target/PowerBeamer.app/Contents/MacOS/libpdfium.dylib
+          fi
+          cp ui/icons/AppIcon.icns target/PowerBeamer.app/Contents/Resources/AppIcon.icns
+          cp ui/icons/app_icon.png target/PowerBeamer.app/Contents/Resources/app_icon.png
+          cat <<EOF > target/PowerBeamer.app/Contents/Info.plist
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>powerbeamer</string>
+              <key>CFBundleIconFile</key>
+              <string>AppIcon</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.powerbeamer.app</string>
+              <key>CFBundleName</key>
+              <string>PowerBeamer</string>
+              <key>CFBundleDisplayName</key>
+              <string>PowerBeamer</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleShortVersionString</key>
+              <string>${GITHUB_REF_NAME#v}</string>
+              <key>CFBundleVersion</key>
+              <string>1</string>
+              <key>LSMinimumSystemVersion</key>
+              <string>11.0</string>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Package Release Archive
+        run: |
+          cd target
+          tar -czf ../PowerBeamer-macos-arm64.tar.gz PowerBeamer.app
+          zip -r ../PowerBeamer-macos-arm64.zip PowerBeamer.app
+          cd ..
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64-assets
+          path: |
+            PowerBeamer-macos-arm64.tar.gz
+            PowerBeamer-macos-arm64.zip
+
+  build-macos-x86_64:
+    name: Build macOS (Intel x86_64)
+    runs-on: macos-13
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+
+      - name: Build Binary
+        run: cargo build --release --target x86_64-apple-darwin
+
+      - name: Package Release Archive
+        run: |
+          mkdir -p target/x86_pkg
+          cp target/x86_64-apple-darwin/release/presenter target/x86_pkg/powerbeamer
+          ln -s powerbeamer target/x86_pkg/presenter
+          if [ -f "libpdfium.dylib" ]; then
+            cp libpdfium.dylib target/x86_pkg/
+          fi
+          cd target/x86_pkg
+          tar -czf ../../PowerBeamer-macos-x86_64.tar.gz powerbeamer *
+          cd ../..
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-x86_64-assets
+          path: PowerBeamer-macos-x86_64.tar.gz
+
+  build-linux-x86_64:
+    name: Build Linux (x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig1-dev libfreetype6-dev libx11-dev libxkbcommon-dev libasound2-dev
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Build Binary
+        run: cargo build --release --target x86_64-unknown-linux-gnu
+
+      - name: Package Release Archive
+        run: |
+          mkdir -p target/linux_pkg
+          cp target/x86_64-unknown-linux-gnu/release/presenter target/linux_pkg/powerbeamer
+          ln -s powerbeamer target/linux_pkg/presenter
+          cd target/linux_pkg
+          tar -czf ../../PowerBeamer-linux-x86_64.tar.gz powerbeamer
+          cd ../..
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-x86_64-assets
+          path: PowerBeamer-linux-x86_64.tar.gz
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [build-macos-arm64, build-macos-x86_64, build-linux-x86_64]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Organize Assets & Generate Checksums
+        run: |
+          mkdir -p release_assets
+          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec cp {} release_assets/ \;
+          cd release_assets
+          sha256sum * > SHA256SUMS.txt
+          cd ..
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release_assets/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false

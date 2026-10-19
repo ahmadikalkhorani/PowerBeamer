@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   viewBox="0 0 24.259157 22.399742"
+   width="24.259157"
+   height="22.399742"
+   version="1.1"
+   id="svg3"
+   sodipodi:docname="swap_screens.svg"
+   inkscape:version="1.4.3 (0d15f75, 2025-12-25)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs3" />
+  <sodipodi:namedview
+     id="namedview3"
+     pagecolor="#505050"
+     bordercolor="#eeeeee"
+     borderopacity="1"
+     inkscape:showpageshadow="0"
+     inkscape:pageopacity="0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#505050"
+     inkscape:zoom="20.979144"
+     inkscape:cx="20.663379"
+     inkscape:cy="11.177768"
+     inkscape:window-width="1920"
+     inkscape:window-height="1022"
+     inkscape:window-x="0"
+     inkscape:window-y="30"
+     inkscape:window-maximized="0"
+     inkscape:current-layer="svg3" />
+  <!-- Back display -->
+  <rect
+     x="7.2591572"
+     y="2.4997413"
+     width="14"
+     height="11"
+     rx="1.5"
+     fill="none"
+     stroke="#ffffff"
+     stroke-width="1.8"
+     opacity="0.6"
+     id="rect1" />
+  <!-- Front display -->
+  <rect
+     x="3.2591569"
+     y="7.4997411"
+     width="14"
+     height="11"
+     rx="1.5"
+     fill="#000000"
+     stroke="#ffffff"
+     stroke-width="1.8"
+     id="rect2" />
+  <!-- Swap arrows -->
+  <path
+     d="m 23.918486,15.410638 0.340671,4.228941 -1.523204,-1.29609 -3.240225,3.80801 -1.523204,-1.29609 3.240225,-3.80801 -1.523204,-1.29609 z"
+     fill="#ffffff"
+     id="path2" />
+  <path
+     d="m 8.259157,21.499742 h 4 m -2,-3 v 3"
+     stroke="#ffffff"
+     stroke-width="1.8"
+     stroke-linecap="round"
+     id="path3" />
+  <path
+     d="M 0.02799,6.396476 0,2.153928 1.423512,3.558781 4.935645,0 6.359157,1.404853 2.847025,4.963634 4.270537,6.368487 Z"
+     fill="#ffffff"
+     id="path4" />
+</svg>

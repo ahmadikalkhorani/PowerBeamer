@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PowerBeamer - presentation_dual_screen.pdf</title>
+  <link rel="icon" type="image/svg+xml" href="icons/app_icon.svg">
+  <link rel="alternate icon" type="image/png" href="icons/favicon.png">
+  <link rel="apple-touch-icon" href="icons/app_icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=20261018e">
+</head>
+<body>
+  <!-- TOP SLINT APP HEADER (Matches ui/presenter.slint lines 545-858) -->
+  <header class="slint-topbar">
+    <!-- Left: macOS traffic lights, App Icon, Back, Close, Document Title -->
+    <div class="topbar-left">
+      <div class="macos-traffic-lights">
+        <span class="traffic-dot close"></span>
+        <span class="traffic-dot minimize"></span>
+        <span class="traffic-dot zoom"></span>
+      </div>
+
+      <div class="app-icon-badge" title="PowerBeamer">
+        <img src="icons/app_icon.png" width="20" height="20" alt="PowerBeamer App Icon">
+      </div>
+
+      <button id="btn-back" class="slint-icon-btn" title="Back">‹</button>
+      <button id="btn-close-doc" class="slint-icon-btn" title="Open Presentation">×</button>
+
+      <div class="doc-title-pill" id="doc-title-pill">
+        <span id="doc-title-text">presentation_dual_screen.pdf</span>
+      </div>
+    </div>
+
+    <!-- Center: Slide Counter with Arrows & Presentation Timer -->
+    <div class="topbar-center">
+      <div class="pill-badge slide-nav-pill" id="slide-counter-pill">
+        <button id="btn-prev-slide-arrow" class="slide-nav-arrow" title="Previous Slide (Left / Up Arrow)">‹</button>
+        <span id="slide-counter-text">1 / 2</span>
+        <button id="btn-next-slide-arrow" class="slide-nav-arrow" title="Next Slide (Right / Down Arrow / Space)">›</button>
+      </div>
+
+      <!-- Beamer Logical Frame & Overlay Counter Pill -->
+      <div class="pill-badge frame-nav-pill" id="frame-counter-pill" title="Beamer Logical Frame & Overlays">
+        <button id="btn-prev-frame" class="slide-nav-arrow" title="Previous Frame (K)">⏮</button>
+        <span id="frame-counter-text">Frame 1/5</span>
+        <button id="btn-next-frame" class="slide-nav-arrow" title="Next Frame (J)">⏭</button>
+      </div>
+
+      <div class="pill-badge timer-pill" id="timer-pill" title="Toggle Timer">
+        <span class="timer-dot">⏱</span>
+        <span id="timer-elapsed-text">00:51</span>
+      </div>
+    </div>
+
+    <!-- Right: Quality pill, Screen controls, Audience projector, Notes drawer, More menu -->
+    <div class="topbar-right">
+      <!-- Quality pill -->
+      <div class="quality-pill" id="quality-pill" 
+           data-tooltip-title="Rendering Engine Quality" 
+           data-tooltip-shortcut="DPI" 
+           data-tooltip-hint="Ultra Vector (600 DPI) • Balanced (300 DPI) • Eco (150 DPI)">
+        <span id="quality-text">Ultra Vector (600 DPI)</span>
+      </div>
+
+      <!-- Screen Blackout Button ◼ (B) -->
+      <button id="btn-blackout" class="slint-sq-btn" 
+              data-tooltip-title="Screen Blackout" 
+              data-tooltip-shortcut="B" 
+              data-tooltip-hint="Black out audience screen to focus attention on speaker">
+        <img src="icons/blackout.svg" width="18" height="18" alt="Blackout">
+      </button>
+
+      <!-- Screen Whiteout Button ◻ (W) -->
+      <button id="btn-whiteout" class="slint-sq-btn" 
+              data-tooltip-title="Screen Whiteout" 
+              data-tooltip-shortcut="W" 
+              data-tooltip-hint="Whiteout screen for annotations & reflections">
+        <img src="icons/whiteout.svg" width="18" height="18" alt="Whiteout">
+      </button>
+
+      <!-- Screen Swap Button ⇄ (S) -->
+      <button id="btn-swap" class="slint-sq-btn" 
+              data-tooltip-title="Swap Displays" 
+              data-tooltip-shortcut="Swap" 
+              data-tooltip-hint="Swap Presenter and Audience screen output">
+        <img src="icons/swap_screens.svg" width="18" height="18" alt="Swap Screens">
+      </button>
+
+      <!-- Document Outline / TOC Button 📑 (O) -->
+      <button id="btn-toc" class="slint-sq-btn" 
+              data-tooltip-title="Table of Contents" 
+              data-tooltip-shortcut="O" 
+              data-tooltip-hint="Toggle PDF outline and bookmarks drawer">
+        <img src="icons/toc.svg" width="17" height="17" alt="TOC">
+      </button>
+
+      <!-- Audience Projector Button 📺 -->
+      <button id="btn-audience" class="slint-sq-btn active" 
+              data-tooltip-title="Audience Window" 
+              data-tooltip-shortcut="Display" 
+              data-tooltip-hint="Open external audience projector display window">
+        <img src="icons/audience_window.svg" width="18" height="18" alt="Audience Window">
+      </button>
+
+      <!-- Speaker Notes Drawer Button ≡ -->
+      <button id="btn-notes-drawer" class="slint-sq-btn" 
+              data-tooltip-title="Speaker Notes" 
+              data-tooltip-shortcut="Notes" 
+              data-tooltip-hint="Toggle side panel with speaker notes & preview">
+        <img src="icons/notes_drawer.svg" width="17" height="17" alt="Speaker Notes">
+      </button>
+
+      <!-- More Menu Button ••• -->
+      <button id="btn-more-menu" class="slint-sq-btn" 
+              data-tooltip-title="Export Annotated PDF" 
+              data-tooltip-shortcut="Save" 
+              data-tooltip-hint="Export presentation slides with vector ink strokes">
+        <span>•••</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- SECONDARY PAGE MANAGEMENT ACTION BAR (When Thumbnails Active) -->
+  <div class="page-action-bar" id="page-action-bar" style="display: none;">
+    <div class="action-item" id="act-insert"><span class="act-icon">+</span><span>Insert</span></div>
+    <div class="action-item" id="act-cut"><span class="act-icon">✂</span><span>Cut</span></div>
+    <div class="action-item" id="act-duplicate"><span class="act-icon">📑</span><span>Duplicate</span></div>
+    <div class="action-item" id="act-rotate"><span class="act-icon">🔄</span><span>Rotate</span></div>
+    <div class="action-item danger" id="act-delete"><span class="act-icon">🗑</span><span>Delete</span></div>
+  </div>
+
+  <!-- MAIN APP WORKSPACE (Matches ui/presenter.slint lines 932-4130) -->
+  <div class="slint-workspace" data-active-tool="pen">
+    <!-- 1. PRESENTER LEFT SLIM TOOLBAR (Matches ui/presenter.slint lines 938-1470) -->
+    <aside class="slint-sidebar">
+      <!-- 1. Grid / Thumbnails (4 squares) -->
+      <button class="slint-tool-btn" id="tool-thumbnails" 
+              data-tooltip-title="Slide Grid Overview" 
+              data-tooltip-shortcut="Tab" 
+              data-tooltip-hint="Toggle thumbnail grid drawer">
+        <img src="icons/thumbnails.svg" width="20" height="20" alt="Thumbnails">
+      </button>
+
+      <!-- 2. Fountain Pen (P) -->
+      <button class="slint-tool-btn active" id="tool-pen" 
+              data-tooltip-title="Ballpoint & Fountain Pen" 
+              data-tooltip-shortcut="P" 
+              data-tooltip-hint="Right-click to adjust thickness & style">
+        <img src="icons/pen.svg" width="22" height="22" alt="Pen">
+        <div class="tool-color-bar" id="bar-pen"></div>
+      </button>
+
+      <!-- 3. Highlighter (H) -->
+      <button class="slint-tool-btn" id="tool-highlighter" 
+              data-tooltip-title="Translucent Highlighter" 
+              data-tooltip-shortcut="H" 
+              data-tooltip-hint="Right-click for width & opacity presets">
+        <img src="icons/highlighter.svg" width="22" height="22" alt="Highlighter">
+        <div class="tool-color-bar" id="bar-highlighter"></div>
+      </button>
+
+      <!-- 4. Eraser (E) -->
+      <button class="slint-tool-btn" id="tool-eraser" 
+              data-tooltip-title="Stroke & Precision Eraser" 
+              data-tooltip-shortcut="E" 
+              data-tooltip-hint="Right-click to toggle Stroke vs Pixel mode">
+        <img src="icons/eraser.svg" width="22" height="22" alt="Eraser">
+      </button>
+
+      <!-- 5. Presenter Tool / Laser Pointer (L) -->
+      <button class="slint-tool-btn" id="tool-laser" 
+              data-tooltip-title="Laser Pointer & Spotlight" 
+              data-tooltip-shortcut="L" 
+              data-tooltip-hint="Right-click to adjust fade duration (0–5s)">
+        <img src="icons/laser.svg" width="22" height="22" alt="Laser">
+        <div class="tool-color-bar" id="bar-laser"></div>
+      </button>
+
+      <div class="slint-tool-divider"></div>
+
+      <!-- Quick Color Slots (5 Palette Colors) -->
+      <!-- Slot 1: Yellow #fef04e -->
+      <button class="color-slot-btn active" id="slot-yellow" 
+              data-tooltip-title="Quick Color Slot 1" 
+              data-tooltip-shortcut="1" 
+              data-tooltip-hint="Click: Select • Right-click: Wheel">
+        <div class="color-circle" style="background: #fef04e;"></div>
+      </button>
+      <!-- Slot 2: Green #5da638 -->
+      <button class="color-slot-btn" id="slot-green" 
+              data-tooltip-title="Quick Color Slot 2" 
+              data-tooltip-shortcut="2" 
+              data-tooltip-hint="Click: Select • Right-click: Wheel">
+        <div class="color-circle" style="background: #5da638;"></div>
+      </button>
+      <!-- Slot 3: Purple #5e35f7 -->
+      <button class="color-slot-btn" id="slot-blue" 
+              data-tooltip-title="Quick Color Slot 3" 
+              data-tooltip-shortcut="3" 
+              data-tooltip-hint="Click: Select • Right-click: Wheel">
+        <div class="color-circle" style="background: #5e35f7;"></div>
+      </button>
+      <!-- Slot 4: Coral Red #ef4444 -->
+      <button class="color-slot-btn" id="slot-red" 
+              data-tooltip-title="Quick Color Slot 4" 
+              data-tooltip-shortcut="4" 
+              data-tooltip-hint="Click: Select • Right-click: Wheel">
+        <div class="color-circle" style="background: #ef4444;"></div>
+      </button>
+      <!-- Slot 5: Sky Blue #00c5ff -->
+      <button class="color-slot-btn" id="slot-cyan" 
+              data-tooltip-title="Quick Color Slot 5" 
+              data-tooltip-shortcut="5" 
+              data-tooltip-hint="Click: Select • Right-click: Wheel">
+        <div class="color-circle" style="background: #00c5ff;"></div>
+      </button>
+
+      <!-- Custom Color Plus Button (+) -->
+      <button class="color-slot-btn add-color-btn" id="slot-add" 
+              data-tooltip-title="Custom Color Palette" 
+              data-tooltip-shortcut="+" 
+              data-tooltip-hint="Open full spectrum color picker">
+        <span class="plus-icon">+</span>
+      </button>
+
+      <div class="slint-tool-spacer"></div>
+
+      <!-- Undo / Redo at bottom -->
+      <button class="slint-tool-btn" id="tool-undo" 
+              data-tooltip-title="Undo Action" 
+              data-tooltip-shortcut="⌘Z" 
+              data-tooltip-hint="Revert the last stroke or action">
+        <img src="icons/undo.svg" width="20" height="20" alt="Undo">
+      </button>
+      <button class="slint-tool-btn" id="tool-redo" 
+              data-tooltip-title="Redo Action" 
+              data-tooltip-shortcut="⇧⌘Z" 
+              data-tooltip-hint="Re-apply reverted stroke or action">
+        <img src="icons/redo.svg" width="20" height="20" alt="Redo">
+      </button>
+    </aside>
+
+    <!-- FLOATING COLOR SELECTOR POPOVER (Matches Slint lines 1799-2334) -->
+    <div class="color-popover-backdrop" id="color-popover-backdrop" style="display: none;"></div>
+    <div class="color-popover-window" id="color-popover-window" style="display: none;">
+      <div class="color-popover-beak" id="color-popover-beak"></div>
+      
+      <!-- Header with Title and Done button -->
+      <div class="color-popover-header">
+        <div class="popover-header-spacer"></div>
+        <span class="color-popover-title">Color</span>
+        <button class="btn-color-done" id="btn-color-done" title="Close Color Selector">Done</button>
+      </div>
+
+      <!-- Tab 0: Color Spectrum Grid -->
+      <div class="color-grid-container" id="color-grid-container">
+        <!-- 108 swatches generated dynamically by app.js -->
+      </div>
+
+      <!-- Tab 1: Circular Chromatic HSV Color Wheel -->
+      <div class="color-wheel-container" id="color-wheel-container" style="display: none;">
+        <div class="color-wheel-disc-box" id="color-wheel-disc-box">
+          <img src="assets/color_wheel.png" class="color-wheel-img" alt="Color Wheel" id="color-wheel-img">
+          <div class="color-wheel-thumb" id="color-wheel-thumb"></div>
+        </div>
+        <div class="color-brightness-row">
+          <span class="brightness-icon">☀️</span>
+          <div class="brightness-slider-track" id="brightness-slider-track">
+            <div class="brightness-gradient-overlay"></div>
+            <div class="brightness-slider-thumb" id="brightness-slider-thumb"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 2: Thematic Palettes -->
+      <div class="color-thematic-container" id="color-thematic-container" style="display: none;">
+        <!-- Thematic palettes dynamically rendered or styled -->
+      </div>
+
+      <!-- Tab 3: Style -->
+      <div class="color-style-container" id="color-style-container" style="display: none;">
+        <div class="color-preview-box">
+          <div class="color-preview-circle" id="style-preview-circle"></div>
+          <div class="color-preview-text">
+            <div class="color-preview-title">Current Drawing Color</div>
+            <div class="color-preview-desc">Applied to Pen, Highlighter, and Shapes</div>
+          </div>
+        </div>
+        <div class="style-stroke-title">Stroke Width Quick Select:</div>
+        <div class="style-stroke-buttons">
+          <button class="stroke-quick-btn" data-width="2">2px Fine</button>
+          <button class="stroke-quick-btn active" data-width="4">4px Medium</button>
+          <button class="stroke-quick-btn" data-width="7">7px Bold</button>
+        </div>
+      </div>
+
+      <!-- Palette section -->
+      <div class="color-popover-palette-sec">
+        <span class="palette-sec-title">Palette</span>
+        <div class="palette-swatches-row" id="palette-swatches-row">
+          <!-- Custom circles and (+) button -->
+        </div>
+      </div>
+
+      <!-- Segmented Tab Bar: [ Grid | Wheel | Palettes | Style ] -->
+      <div class="color-tab-bar" id="color-tab-bar">
+        <button class="color-tab-btn active" data-tab="0">Grid</button>
+        <button class="color-tab-btn" data-tab="1">Wheel</button>
+        <button class="color-tab-btn" data-tab="2">Palettes</button>
+        <button class="color-tab-btn" data-tab="3">Style</button>
+      </div>
+    </div>
+
+    <!-- 2. PRESENTATION STAGE (Matches ui/presenter.slint lines 1475-3835) -->
+    <section class="slint-stage-area" id="stage-area">
+      <div class="slide-viewport" id="slide-viewport">
+        <!-- Rendered Slide Image -->
+        <img id="stage-slide-img" class="stage-slide-img" src="assets/dual_slide_aud_1.png" alt="Audience Slide">
+
+        <!-- In-Place Native Video Player (Plays in place with exact size and aspect ratio) -->
+        <div id="inplace-video-box" class="inplace-video-box" style="display: none;">
+          <video id="inplace-video-player" class="inplace-video-player" playsinline preload="auto"></video>
+        </div>
+
+        <!-- Drawing Ink Canvas Overlay -->
+        <canvas id="ink-canvas" class="stage-ink-canvas"></canvas>
+        <canvas id="laser-canvas" class="stage-ink-canvas" style="pointer-events: none; z-index: 15;"></canvas>
+
+        <!-- Laser Pointer Dot -->
+        <div id="stage-laser-dot" class="stage-laser-dot"></div>
+
+        <!-- Magnifier Floating Icon (Bottom Right, matching screenshot) -->
+        <div class="magnifier-btn" id="magnifier-btn" title="Zoom Magnifier">
+          <span>🔍</span>
+        </div>
+
+        <!-- Floating Screen Blankout / Whiteout / Swap Notification Banner -->
+        <div id="stage-blank-banner" class="stage-blank-banner" style="display: none;">
+          <span id="stage-blank-banner-text">◼ AUDIENCE SCREEN BLACKOUT (B to restore)</span>
+          <button id="stage-blank-banner-close" class="stage-blank-banner-close">✕</button>
+        </div>
+
+        <!-- Projector Blankout / Whiteout Full Overlay Layer -->
+        <div id="projector-blank-overlay" class="projector-blank-overlay" style="display: none;"></div>
+
+        <!-- THUMBNAILS / PAGE OVERVIEW GRID WITH DRAG-AND-DROP REORDERING -->
+        <div id="page-overview-overlay" class="page-overview-overlay" style="display: none;">
+          <div class="overview-scroll-container" id="overview-scroll-container">
+            <!-- Draggable cards dynamically populated by app.js -->
+          </div>
+        </div>
+      </div>
+
+
+      <!-- Floating Slide Navigation Arrows on Canvas Edges -->
+      <button id="stage-arrow-prev" class="stage-nav-arrow stage-arrow-prev" title="Previous Slide (‹ / Left Arrow)">‹</button>
+      <button id="stage-arrow-next" class="stage-nav-arrow stage-arrow-next" title="Next Slide (› / Right Arrow)">›</button>
+
+      <!-- MEDIA CONTROLLER (Docked at bottom of slide window, resizes with stage-area) -->
+      <div class="youtube-media-bar" id="media-toolbar-overlay" style="display: none;">
+        <!-- Top Full-Width Progress Scrubber Line -->
+        <div class="yt-progress-container" id="media-scrubber-track" title="Seek">
+          <div class="yt-progress-bg">
+            <div class="yt-progress-buffer" id="media-buffer-fill"></div>
+            <div class="yt-progress-played" id="media-scrubber-fill" style="width: 0%;"></div>
+          </div>
+          <div class="yt-scrubber-thumb" id="media-scrubber-thumb" style="left: 0%;"></div>
+        </div>
+
+        <!-- Controls Row -->
+        <div class="yt-controls-row">
+          <!-- Left Controls: Play/Replay, Stop, Mute/Volume, Time (White symbols, NO background) -->
+          <div class="yt-controls-left">
+            <button class="yt-icon-btn yt-clean-btn" id="media-btn-play" title="Play / Pause (k / space)">
+              <img id="media-play-icon" src="icons/play.svg" width="18" height="18" alt="Play">
+            </button>
+
+            <button class="yt-icon-btn yt-clean-btn" id="media-btn-stop" title="Stop (revert slide frame)">
+              <img id="media-stop-icon" src="icons/stop.svg" width="16" height="16" alt="Stop">
+            </button>
+
+            <button class="yt-icon-btn yt-clean-btn" id="media-btn-speech" title="Mute / Unmute (m)">
+              <img id="media-speech-icon" src="icons/volume.svg" width="18" height="18" alt="Volume">
+            </button>
+
+            <div class="yt-time-display">
+              <span id="media-time-readout">00:00 / 01:30</span>
+            </div>
+          </div>
+
+          <!-- Right Controls: Speed Button -->
+          <div class="yt-controls-right">
+            <button class="yt-speed-btn" id="media-btn-speed" title="Playback Speed">
+              <span id="media-speed-text">1.0x</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. SPLITTER DIVIDER BAR (Matches ui/presenter.slint lines 3840-3856) -->
+    <div class="slint-splitter-bar" id="splitter-bar" style="display: none;" title="Drag to Resize Slide vs Notes">
+      <div class="splitter-line-handle"></div>
+    </div>
+
+    <!-- 4. COLLAPSIBLE RIGHT DRAWER (Matches ui/presenter.slint lines 3862-4270) -->
+    <aside class="slint-notes-drawer collapsed" id="notes-drawer">
+      <div class="drawer-inner-layout">
+        <!-- Drawer Header -->
+        <div class="drawer-header-row">
+          <span class="drawer-header-title">SPEAKER NOTES & CONTROLS</span>
+          <button id="btn-close-notes" class="btn-drawer-close" title="Close Notes Drawer">×</button>
+        </div>
+
+
+        <!-- VISUAL PREVIEW: DUAL-SCREEN NOTE SLIDE (Matches Slint lines 4078-4125) -->
+        <div class="visual-preview-box" id="visual-preview-box">
+          <div class="preview-header-bar">
+            <span id="preview-badge-title" class="preview-badge-title">📐 DUAL-SCREEN NOTE SLIDE (pgfpages)</span>
+            <span id="preview-tag-split" class="preview-tag-split">32:9 Split</span>
+          </div>
+          <div class="preview-img-container" id="preview-img-container">
+            <img id="drawer-note-img" src="assets/dual_slide_note_2.png" alt="Beamer Second Screen Note Slide">
+          </div>
+        </div>
+
+        <!-- DRAGGABLE HORIZONTAL SPLITTER SLIDER BETWEEN NOTE SIZE PREVIEW AND SPEAKER COMMENTS -->
+        <div class="notes-h-splitter" id="notes-h-splitter" title="Click and drag to resize Note Preview vs Speaker Notes">
+          <div class="notes-h-splitter-line"></div>
+          <div class="notes-h-splitter-handle"></div>
+        </div>
+
+        <!-- SPEAKER COMMENTS & NOTES (Matches Slint lines 4130-4265) -->
+        <div class="comments-card-box">
+          <div class="comments-card-header">
+            <span class="comments-card-title">SPEAKER COMMENTS & NOTES</span>
+            <div class="comments-btn-strip">
+              <button id="btn-add-bullet" class="chip-action-btn" title="Insert Bullet">+ Bullet</button>
+              <button id="btn-add-reminder" class="chip-action-btn highlight" title="Insert Reminder">⏰ Reminder</button>
+              <button id="btn-clear-notes" class="chip-action-btn danger" title="Clear Notes">Clear</button>
+            </div>
+          </div>
+
+          <!-- Multi-line TextInput Comment Editor -->
+          <div class="comment-textarea-wrap">
+            <textarea id="comment-text-input" spellcheck="false" placeholder="✍️ Type speaker comments, LaTeX derivations, or timing notes for this slide..."></textarea>
+          </div>
+
+          <div class="comment-status-row">
+            <span id="comment-char-counter" class="char-count-text">128 characters</span>
+            <span class="auto-save-text">● Auto-Saved</span>
+          </div>
+        </div>
+
+        <!-- DETACH TO SEPARATE WINDOW CTA BUTTON (Matches Slint line 4268) -->
+        <button id="btn-detach-window-cta" class="slint-detach-cta-btn">
+          <span>📝 Detach to Separate Window</span>
+        </button>
+      </div>
+    </aside>
+  </div>
+
+  <!-- FLOATING DETACHED NOTES WINDOW (MODAL SIMULATION) -->
+  <div class="modal-detached-overlay" id="modal-detached" style="display: none;">
+    <div class="detached-slint-window">
+      <div class="detached-titlebar">
+        <div class="macos-traffic-lights">
+          <span class="traffic-dot close" id="btn-close-detached-modal"></span>
+        </div>
+        <span class="detached-title-text">PowerBeamer - Speaker Notes (Detached)</span>
+        <span id="detached-timer-display" class="detached-timer-display">⏱ 188:21</span>
+      </div>
+
+      <div class="detached-content-body">
+        <div class="detached-meta-row">
+          <span id="detached-slide-label" class="detached-slide-label">Slide 2 of 2</span>
+          <span class="detached-sync-badge">Synced with Deck</span>
+        </div>
+
+        <div class="detached-preview-container">
+          <div class="detached-preview-header">
+            <span>📐 DUAL-SCREEN NOTE SLIDE (pgfpages)</span>
+            <span class="preview-tag-split">Second Screen</span>
+          </div>
+          <img id="detached-note-img" src="assets/dual_slide_note_2.png" alt="Detached Note Slide">
+        </div>
+
+        <!-- DRAGGABLE HORIZONTAL SPLITTER SLIDER BETWEEN NOTE SIZE PREVIEW AND SPEAKER COMMENTS -->
+        <div class="notes-h-splitter" id="detached-notes-h-splitter" title="Click and drag to resize Note Preview vs Speaker Notes">
+          <div class="notes-h-splitter-line"></div>
+          <div class="notes-h-splitter-handle"></div>
+        </div>
+
+        <div class="detached-comments-container">
+          <div class="detached-comments-header">
+            <span>SPEAKER COMMENTS & NOTES</span>
+            <div class="comments-btn-strip">
+              <button id="detached-btn-bullet" class="chip-action-btn">+ Bullet</button>
+              <button id="detached-btn-reminder" class="chip-action-btn highlight">⏰ Reminder</button>
+              <button id="detached-btn-clear" class="chip-action-btn danger">Clear</button>
+            </div>
+          </div>
+          <textarea id="detached-textarea" spellcheck="false" placeholder="✍️ Type notes on floating screen..."></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE-OUT PDF OUTLINE / TOC DRAWER -->
+  <div id="toc-drawer-overlay" class="toc-drawer-overlay" style="display: none;">
+    <div class="toc-drawer-backdrop" id="toc-drawer-backdrop"></div>
+    <aside class="toc-drawer-panel">
+      <div class="toc-drawer-header">
+        <div class="toc-title-group">
+          <span class="toc-icon">📑</span>
+          <span class="toc-title">Document Outline & TOC</span>
+        </div>
+        <button id="btn-close-toc" class="btn-drawer-close" title="Close Outline">✕</button>
+      </div>
+      <div class="toc-divider"></div>
+      <div class="toc-items-container" id="toc-items-container">
+        <!-- Dynamically rendered TOC items -->
+      </div>
+    </aside>
+  </div>
+
+  <script src="app.js?v=20261018i"></script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+[package]
+name = "powerbeamer"
+version = "0.1.0"
+edition = "2024"
+authors = ["Vahid Kalkhorani"]
+description = "High-performance LaTeX Beamer & PDF Presentation Studio"
+repository = "https://github.com/ahmadikalkhorani/PowerBeamer"
+
+[lib]
+name = "presenter"
+path = "src/lib.rs"
+
+[[bin]]
+name = "powerbeamer"
+path = "src/main.rs"
+
+[dependencies]
+slint = "1.18"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = "0.4"
+rfd = "0.15"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+pdfium-render = "0.9.4"
+ureq = { version = "2.10", default-features = false, features = ["tls", "json"] }
+flate2 = "1.0"
+tar = "0.4"
+
+[build-dependencies]
+slint-build = "1.18"

@@ -1,0 +1,54 @@
+\documentclass[aspectratio=169]{beamer}
+
+\usetheme{Madrid}
+\usecolortheme{whale}
+
+\usepackage{multimedia}
+\usepackage{amsmath,amssymb}
+\usepackage{pgfpages}
+
+% Compile with dual-screen notes side-by-side on the right (32:9 aspect ratio)
+\setbeameroption{show notes on second screen=right}
+
+\title[Dual-Screen Beamer]{Dual-Screen LaTeX Beamer Slide Deck}
+\subtitle{Demonstrating pgfpages Automatic Screen Splitting}
+\author[V. Kalkhorani]{Vahid Kalkhorani}
+\institute[OSU]{The Ohio State University}
+\date{\today}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+  \note{
+    \textbf{DUAL-SCREEN SPEAKER NOTE}:
+    \begin{itemize}
+      \item This note is rendered by pgfpages side-by-side with the slide!
+      \item The presenter software automatically detects the 32:9 aspect ratio.
+      \item The audience sees ONLY the left presentation half.
+      \item The speaker sees this private note on the laptop display.
+    \end{itemize}
+  }
+\end{frame}
+
+\begin{frame}{Dual-Screen Test: Audio and Video}
+  \begin{block}{Embedded Multimedia}
+    Testing audio and video integration on dual-screen setups:
+  \end{block}
+
+  \centering
+  \vspace{0.5em}
+  \movie[width=7cm,height=3.9cm,showcontrols=true]{
+    \colorbox{black}{\parbox{7cm}{\centering \textcolor{white}{\vspace{1.2cm} \textbf{[VIDEO] Play Video Simulation} \\ \small sample\_video.mp4 \vspace{1.2cm}}}}
+  }{sample_video.mp4}
+
+  \note{
+    \textbf{PRIVATE SPEAKER REMINDER}:
+    \begin{itemize}
+      \item Trigger the video by clicking on it or pressing Space.
+      \item Time allocated for this section: 3 minutes.
+    \end{itemize}
+  }
+\end{frame}
+
+\end{document}

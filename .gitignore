@@ -1,0 +1,9 @@
+/target
+.DS_Store
+*.DS_Store
+*.synctex.gz
+*.aux
+*.log
+*.out
+*.toc
+/tmp
