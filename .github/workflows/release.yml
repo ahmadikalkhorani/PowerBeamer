@@ -67,6 +67,7 @@ jobs:
           </dict>
           </plist>
           EOF
+          codesign --force --deep --sign - target/PowerBeamer.app
 
       - name: Package Release Archive
         run: |

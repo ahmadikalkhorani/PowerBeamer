@@ -69,4 +69,7 @@ cat <<EOF > "$CONTENTS/Info.plist"
 </plist>
 EOF
 
+# 6. Ad-hoc codesign the bundle (required on Apple Silicon)
+codesign --force --deep --sign - "$APP_DIR"
+
 echo "Created $APP_DIR successfully!"

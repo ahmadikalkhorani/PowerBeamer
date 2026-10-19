@@ -19,6 +19,17 @@ Pre-compiled standalone packages are available under **[GitHub Releases](https:/
 
 > **Tip:** PowerBeamer includes an automatic in-app updater. Once installed, future updates can be installed with a single click from the Options menu (`•••`).
 
+### 🍏 macOS First-Launch Note (Gatekeeper / "App is damaged")
+
+Because PowerBeamer is an independent open-source release, macOS Gatekeeper attaches a quarantine flag to internet-downloaded apps, often displaying:
+> *"PowerBeamer is damaged and can't be opened. You should move it to the Trash."*
+
+To open the app, simply run this one-line command in your **Terminal**:
+```bash
+xattr -cr /Applications/PowerBeamer.app
+```
+*(Alternatively: **Right-click / Control-click** `PowerBeamer.app` in Finder, select **Open**, and confirm **Open**; or go to **System Settings > Privacy & Security** and click **"Open Anyway"**).*
+
 ---
 
 ## ✨ Key Features
