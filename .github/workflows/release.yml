@@ -159,9 +159,59 @@ jobs:
           name: linux-x86_64-assets
           path: PowerBeamer-linux-x86_64.tar.gz
 
+  build-windows-x86_64:
+    name: Build Windows (x86_64)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Download PDFium DLL
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-win-x64.tgz" -OutFile "pdfium.tgz"
+          tar -xzf pdfium.tgz
+          Copy-Item bin/pdfium.dll .
+
+      - name: Build Binary
+        run: cargo build --release --target x86_64-pc-windows-msvc
+
+      - name: Package Release Archive
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path target/win_pkg
+          if (Test-Path "target/x86_64-pc-windows-msvc/release/powerbeamer.exe") {
+            Copy-Item "target/x86_64-pc-windows-msvc/release/powerbeamer.exe" target/win_pkg/
+          } else {
+            Copy-Item "target/x86_64-pc-windows-msvc/release/presenter.exe" target/win_pkg/powerbeamer.exe
+          }
+          Copy-Item bin/pdfium.dll target/win_pkg/
+          if (Test-Path "ui/icons/app_icon.ico") {
+            Copy-Item ui/icons/app_icon.ico target/win_pkg/
+          }
+          Copy-Item ui/icons/app_icon.png target/win_pkg/
+          Copy-Item README.md target/win_pkg/
+          Copy-Item LICENSE target/win_pkg/
+          
+          Compress-Archive -Path target/win_pkg/* -DestinationPath PowerBeamer-windows-x86_64.zip
+          tar -czf PowerBeamer-windows-x86_64.tar.gz -C target/win_pkg .
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x86_64-assets
+          path: |
+            PowerBeamer-windows-x86_64.zip
+            PowerBeamer-windows-x86_64.tar.gz
+
   publish-release:
     name: Publish GitHub Release
-    needs: [build-macos-arm64, build-macos-x86_64, build-linux-x86_64]
+    needs: [build-macos-arm64, build-macos-x86_64, build-linux-x86_64, build-windows-x86_64]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code

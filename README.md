@@ -14,6 +14,7 @@ Pre-compiled standalone packages are available under **[GitHub Releases](https:/
 
 - 🍏 **macOS (Apple Silicon M1/M2/M3/M4)**: Download `PowerBeamer-macos-arm64.zip`, extract it, and drag `PowerBeamer.app` into your `/Applications` folder.
 - 💻 **macOS (Intel x86_64)**: Download `PowerBeamer-macos-x86_64.tar.gz`.
+- 🪟 **Windows (x86_64 / 64-bit)**: Download `PowerBeamer-windows-x86_64.zip`, extract the folder, and double-click `powerbeamer.exe` (bundles `pdfium.dll`, standalone portable).
 - 🐧 **Linux (x86_64)**: Download `PowerBeamer-linux-x86_64.tar.gz`, extract the archive, and run `./powerbeamer`.
 
 > **Tip:** PowerBeamer includes an automatic in-app updater. Once installed, future updates can be installed with a single click from the Options menu (`•••`).
