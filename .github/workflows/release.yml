@@ -28,8 +28,12 @@ jobs:
       - name: Build macOS App Bundle
         run: |
           mkdir -p target/PowerBeamer.app/Contents/{MacOS,Resources}
-          cp target/aarch64-apple-darwin/release/presenter target/PowerBeamer.app/Contents/MacOS/powerbeamer
-          ln -s powerbeamer target/PowerBeamer.app/Contents/MacOS/presenter
+          if [ -f "target/aarch64-apple-darwin/release/powerbeamer" ]; then
+            cp target/aarch64-apple-darwin/release/powerbeamer target/PowerBeamer.app/Contents/MacOS/powerbeamer
+          else
+            cp target/aarch64-apple-darwin/release/presenter target/PowerBeamer.app/Contents/MacOS/powerbeamer
+          fi
+          ln -sf powerbeamer target/PowerBeamer.app/Contents/MacOS/presenter
           if [ -f "libpdfium.dylib" ]; then
             cp libpdfium.dylib target/PowerBeamer.app/Contents/MacOS/libpdfium.dylib
           fi
@@ -97,8 +101,12 @@ jobs:
       - name: Package Release Archive
         run: |
           mkdir -p target/x86_pkg
-          cp target/x86_64-apple-darwin/release/presenter target/x86_pkg/powerbeamer
-          ln -s powerbeamer target/x86_pkg/presenter
+          if [ -f "target/x86_64-apple-darwin/release/powerbeamer" ]; then
+            cp target/x86_64-apple-darwin/release/powerbeamer target/x86_pkg/powerbeamer
+          else
+            cp target/x86_64-apple-darwin/release/presenter target/x86_pkg/powerbeamer
+          fi
+          ln -sf powerbeamer target/x86_pkg/presenter
           if [ -f "libpdfium.dylib" ]; then
             cp libpdfium.dylib target/x86_pkg/
           fi
@@ -135,8 +143,12 @@ jobs:
       - name: Package Release Archive
         run: |
           mkdir -p target/linux_pkg
-          cp target/x86_64-unknown-linux-gnu/release/presenter target/linux_pkg/powerbeamer
-          ln -s powerbeamer target/linux_pkg/presenter
+          if [ -f "target/x86_64-unknown-linux-gnu/release/powerbeamer" ]; then
+            cp target/x86_64-unknown-linux-gnu/release/powerbeamer target/linux_pkg/powerbeamer
+          else
+            cp target/x86_64-unknown-linux-gnu/release/presenter target/linux_pkg/powerbeamer
+          fi
+          ln -sf powerbeamer target/linux_pkg/presenter
           cd target/linux_pkg
           tar -czf ../../PowerBeamer-linux-x86_64.tar.gz powerbeamer
           cd ../..
