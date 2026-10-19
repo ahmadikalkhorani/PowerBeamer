@@ -1,0 +1,48 @@
+MIT License
+
+Copyright (c) 2026 Vahid Kalkhorani
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+### Third-Party Notices & Acknowledgments
+
+PowerBeamer relies on and gratefully acknowledges the following open-source projects:
+
+- **[Slint UI](https://slint.dev/)** (GPLv3 / Royalty-Free Desktop License)
+  Copyright (c) SixtyFPS GmbH.
+  Slint is a comprehensive, declarative GUI toolkit used to power the responsive user interface and multi-window rendering.
+
+- **[Google PDFium](https://pdfium.googlesource.com/pdfium/)** (Apache-2.0 / BSD-3-Clause)
+  Copyright (c) 2014-2026 The PDFium Authors.
+  Used for ultra-high-fidelity vector PDF rasterization, text search, and slide rendering.
+
+- **[pdfium-render](https://github.com/ajrcore/pdfium-render)** (MIT / Apache-2.0)
+  Copyright (c) 2020-2026 Alex Robinson and contributors.
+  Idiomatic Rust bindings for the PDFium library.
+
+- **[image-rs](https://github.com/image-rs/image)** (MIT / Apache-2.0)
+  High-performance image encoding and decoding library.
+
+- **[serde](https://serde.rs/) & [serde_json](https://github.com/serde-rs/json)** (MIT / Apache-2.0)
+  Serialization framework for non-destructive session storage and update metadata.
+
+- **[LaTeX Beamer Project](https://github.com/josephwright/beamer)** (LPPL / GPL)
+  Standard LaTeX presentation class and `pgfpages` dual-screen layout specifications.

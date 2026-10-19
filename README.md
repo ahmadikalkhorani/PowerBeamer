@@ -85,3 +85,20 @@ cargo build --release
 # Build standalone macOS application bundle (PowerBeamer.app)
 ./scripts/build_macos_app.sh
 ```
+
+---
+
+## 🙏 Acknowledgments & Built With
+
+PowerBeamer is built on the shoulders of fantastic open-source projects:
+
+- **[Slint](https://slint.dev/)**: The next-generation declarative GUI toolkit and rendering engine powering the ultra-fluid, multi-window presentation interface.
+- **[Google PDFium](https://pdfium.googlesource.com/pdfium/)** & **[pdfium-render](https://github.com/ajrcore/pdfium-render)**: Fast, rock-solid vector PDF rasterization and outline parsing.
+- **[The Rust Community](https://www.rust-lang.org/)**: For foundational crates including `image`, `serde`, `chrono`, `rfd`, `ureq`, `flate2`, and `tar`.
+- **[LaTeX Beamer](https://github.com/josephwright/beamer)**: Standardizing academic slide formats and `pgfpages` dual-screen presentations.
+
+---
+
+## 📄 License
+
+PowerBeamer is released under the [MIT License](LICENSE). Third-party libraries retain their respective copyrights and licenses.
