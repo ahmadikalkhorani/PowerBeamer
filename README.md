@@ -24,11 +24,14 @@ Pre-compiled standalone packages are available under **[GitHub Releases](https:/
 Because PowerBeamer is an independent open-source release, macOS Gatekeeper attaches a quarantine flag to internet-downloaded apps, often displaying:
 > *"PowerBeamer is damaged and can't be opened. You should move it to the Trash."*
 
-To open the app, simply run this one-line command in your **Terminal**:
+To open the app, run this single command in your **Terminal**:
 ```bash
-xattr -cr /Applications/PowerBeamer.app
+xattr -d com.apple.quarantine /Applications/PowerBeamer.app
 ```
-*(Alternatively: **Right-click / Control-click** `PowerBeamer.app` in Finder, select **Open**, and confirm **Open**; or go to **System Settings > Privacy & Security** and click **"Open Anyway"**).*
+*(Or if the app is still in your Downloads folder: `xattr -d com.apple.quarantine ~/Downloads/PowerBeamer.app`)*
+
+> **Why does this happen?**
+> On **macOS Sequoia (15+)**, Apple removed the *"Open Anyway"* bypass button in System Settings for web-downloaded open-source apps. Running the `xattr -d com.apple.quarantine` command removes the browser download flag and permits macOS to launch PowerBeamer immediately.
 
 ---
 
