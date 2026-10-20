@@ -119,19 +119,9 @@ pub fn check_for_update(repo: &str) -> Result<Option<UpdateInfo>, String> {
         return Ok(None);
     }
 
-    let (os_str, arch_str) = current_platform_target();
-    let matching_asset = release.assets.iter().find(|asset| {
-        let name_lower = asset.name.to_lowercase();
-        name_lower.contains(os_str) && (name_lower.contains(arch_str) || (arch_str == "arm64" && name_lower.contains("aarch64")))
-    });
-
-    let (download_url, asset_name) = if let Some(asset) = matching_asset {
-        (asset.browser_download_url.clone(), asset.name.clone())
-    } else if let Some(first) = release.assets.first() {
-        (first.browser_download_url.clone(), first.name.clone())
-    } else {
-        return Err(format!("Release {} found, but no pre-built binaries are attached.", release.tag_name));
-    };
+    let asset = platform_asset(&release)
+        .ok_or_else(|| format!("Release {} found, but no pre-built binaries are attached.", release.tag_name))?;
+    let (download_url, asset_name) = (asset.browser_download_url.clone(), asset.name.clone());
 
     Ok(Some(UpdateInfo {
         current_version: current_version.to_string(),
@@ -141,6 +131,63 @@ pub fn check_for_update(repo: &str) -> Result<Option<UpdateInfo>, String> {
         asset_name,
         release_url: release.html_url,
     }))
+}
+
+/// The release asset built for this OS/CPU, falling back to the first asset.
+fn platform_asset(release: &GithubRelease) -> Option<&ReleaseAsset> {
+    let (os_str, arch_str) = current_platform_target();
+    release
+        .assets
+        .iter()
+        .find(|asset| {
+            let name_lower = asset.name.to_lowercase();
+            name_lower.contains(os_str)
+                && (name_lower.contains(arch_str) || (arch_str == "arm64" && name_lower.contains("aarch64")))
+        })
+        .or_else(|| release.assets.first())
+}
+
+/// Repairs an app bundle left half-updated by updaters older than 0.1.2, which replaced only
+/// the executable (leaving the old Info.plist, icons and a broken signature). If the bundle's
+/// Info.plist version doesn't match this binary, re-install this version's full release
+/// bundle; it takes effect on the next launch. Returns `Ok(true)` when a repair was installed.
+pub fn repair_stale_bundle(repo: &str) -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let version = env!("CARGO_PKG_VERSION");
+        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        let Some(app) = enclosing_app_bundle(&exe) else { return Ok(false) };
+        let plist = std::fs::read_to_string(app.join("Contents/Info.plist")).unwrap_or_default();
+        if bundle_short_version(&plist).as_deref() == Some(version) {
+            return Ok(false);
+        }
+
+        let url = format!("https://api.github.com/repos/{}/releases/tags/v{}", repo, version);
+        let release: GithubRelease = ureq::get(&url)
+            .set("User-Agent", "Presenter-AutoUpdater")
+            .set("Accept", "application/vnd.github.v3+json")
+            .timeout(std::time::Duration::from_secs(10))
+            .call()
+            .map_err(|e| format!("Couldn't fetch release v{}: {}", version, e))?
+            .into_json()
+            .map_err(|e| format!("Couldn't parse release v{}: {}", version, e))?;
+        let asset = platform_asset(&release).ok_or("release has no assets")?;
+        download_and_install_update(&asset.browser_download_url, |_| {})?;
+        Ok(true)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = repo;
+        Ok(false)
+    }
+}
+
+/// `CFBundleShortVersionString` from an Info.plist's XML.
+#[cfg(target_os = "macos")]
+fn bundle_short_version(plist: &str) -> Option<String> {
+    let after_key = plist.split("<key>CFBundleShortVersionString</key>").nth(1)?;
+    let value = after_key.split("<string>").nth(1)?.split("</string>").next()?;
+    Some(value.trim().to_string())
 }
 
 /// Downloads the release archive and replaces the current executable.
@@ -193,9 +240,22 @@ pub fn download_and_install_update<F: Fn(f32) + Send + 'static>(
     std::fs::create_dir_all(&extract_dir).map_err(|e| format!("Failed to create extract folder: {}", e))?;
     archive.unpack(&extract_dir).map_err(|e| format!("Failed to unpack archive: {}", e))?;
 
-    // 3. Find binary in extracted directory
-    let new_binary = find_binary_in_dir(&extract_dir, "presenter")
-        .ok_or_else(|| "Could not locate 'presenter' binary in downloaded release archive.".to_string())?;
+    // 3a. macOS app bundle: replace the whole PowerBeamer.app (binary, Info.plist, icons,
+    // signature) so the installed app is exactly the released one.
+    #[cfg(target_os = "macos")]
+    if let (Some(installed_app), Some(new_app)) =
+        (enclosing_app_bundle(&current_exe), find_app_bundle_in_dir(&extract_dir))
+    {
+        replace_app_bundle(&new_app, &installed_app)?;
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        return Ok(());
+    }
+
+    // 3b. Bare executable (Linux, Windows, or running outside a bundle). Current releases name
+    // it `powerbeamer`; `presenter` is the pre-0.1 name.
+    let new_binary = find_binary_in_dir(&extract_dir, "powerbeamer")
+        .or_else(|| find_binary_in_dir(&extract_dir, "presenter"))
+        .ok_or_else(|| "Could not locate the PowerBeamer executable in the downloaded release archive.".to_string())?;
 
     // 4. Safely replace the running binary
     #[cfg(unix)]
@@ -244,6 +304,92 @@ pub fn download_and_install_update<F: Fn(f32) + Send + 'static>(
     Ok(())
 }
 
+/// `/Applications/PowerBeamer.app` for an executable at `.../PowerBeamer.app/Contents/MacOS/x`.
+#[cfg(target_os = "macos")]
+fn enclosing_app_bundle(exe: &Path) -> Option<PathBuf> {
+    let macos_dir = exe.parent()?;
+    let contents = macos_dir.parent()?;
+    let app = contents.parent()?;
+    let is_bundle = macos_dir.file_name()? == "MacOS"
+        && contents.file_name()? == "Contents"
+        && app.extension()? == "app";
+    is_bundle.then(|| app.to_path_buf())
+}
+
+#[cfg(target_os = "macos")]
+fn find_app_bundle_in_dir(dir: &Path) -> Option<PathBuf> {
+    for entry in std::fs::read_dir(dir).ok()?.flatten() {
+        let path = entry.path();
+        if !path.is_dir() || path.is_symlink() {
+            continue;
+        }
+        if path.extension().is_some_and(|e| e == "app") && path.join("Contents/MacOS").is_dir() {
+            return Some(path);
+        }
+        if let Some(found) = find_app_bundle_in_dir(&path) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// Swaps `installed` for `new_app`. The new bundle is first copied next to the installed one
+/// (same volume, so the final step is an atomic rename); the old bundle is restored if any
+/// step fails. Replacing the files of a running app is safe on macOS: the process keeps its
+/// already-open executable until it restarts.
+#[cfg(target_os = "macos")]
+fn replace_app_bundle(new_app: &Path, installed: &Path) -> Result<(), String> {
+    let staged = installed.with_extension("app.updating");
+    let backup = installed.with_extension("app.old");
+    let _ = std::fs::remove_dir_all(&staged);
+    let _ = std::fs::remove_dir_all(&backup);
+
+    copy_dir_preserving(new_app, &staged).map_err(|e| {
+        let _ = std::fs::remove_dir_all(&staged);
+        format!(
+            "Couldn't write the update next to {} ({}). Download the new version from GitHub and replace the app manually.",
+            installed.display(),
+            e
+        )
+    })?;
+    // The archive is fetched by us (not a browser) so it shouldn't be quarantined, but clear
+    // the flag anyway so Gatekeeper never blocks the relaunch.
+    let _ = std::process::Command::new("xattr").args(["-cr"]).arg(&staged).status();
+
+    std::fs::rename(installed, &backup).map_err(|e| {
+        let _ = std::fs::remove_dir_all(&staged);
+        format!("Failed to move the old app aside: {}", e)
+    })?;
+    if let Err(e) = std::fs::rename(&staged, installed) {
+        let _ = std::fs::rename(&backup, installed);
+        let _ = std::fs::remove_dir_all(&staged);
+        return Err(format!("Failed to install the new app: {}", e));
+    }
+    let _ = std::fs::remove_dir_all(&backup);
+    Ok(())
+}
+
+/// Recursive copy that keeps symlinks as symlinks and file permissions intact (both matter
+/// inside an app bundle and for its code signature).
+#[cfg(target_os = "macos")]
+fn copy_dir_preserving(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let src = entry.path();
+        let dst = to.join(entry.file_name());
+        let kind = entry.file_type()?;
+        if kind.is_symlink() {
+            std::os::unix::fs::symlink(std::fs::read_link(&src)?, &dst)?;
+        } else if kind.is_dir() {
+            copy_dir_preserving(&src, &dst)?;
+        } else {
+            std::fs::copy(&src, &dst)?;
+        }
+    }
+    Ok(())
+}
+
 fn find_binary_in_dir(dir: &Path, name: &str) -> Option<PathBuf> {
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
@@ -266,6 +412,20 @@ fn find_binary_in_dir(dir: &Path, name: &str) -> Option<PathBuf> {
 
 /// Restarts the application using the updated executable and passes original CLI arguments.
 pub fn restart_application() {
+    // Relaunch a bundled app through LaunchServices so macOS picks up the new bundle
+    // (Info.plist, icon, signature) rather than just re-running the executable.
+    #[cfg(target_os = "macos")]
+    if let Some(app) = std::env::current_exe().ok().as_deref().and_then(enclosing_app_bundle) {
+        let args: Vec<String> = std::env::args().skip(1).collect();
+        let mut cmd = std::process::Command::new("open");
+        cmd.arg("-n").arg(&app);
+        if !args.is_empty() {
+            cmd.arg("--args").args(args);
+        }
+        if cmd.spawn().is_ok() {
+            std::process::exit(0);
+        }
+    }
     if let Ok(current_exe) = std::env::current_exe() {
         let args: Vec<String> = std::env::args().skip(1).collect();
         let mut cmd = std::process::Command::new(current_exe);
@@ -274,3 +434,45 @@ pub fn restart_application() {
         std::process::exit(0);
     }
 }
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+
+    fn write(path: &Path, text: &str) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+
+    #[test]
+    fn replaces_whole_app_bundle_and_keeps_symlinks() {
+        let root = std::env::temp_dir().join(format!("pb_update_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let installed = root.join("Applications/PowerBeamer.app");
+        write(&installed.join("Contents/MacOS/powerbeamer"), "old binary");
+        write(&installed.join("Contents/Info.plist"), "0.1.0");
+        write(&installed.join("Contents/MacOS/stale_leftover"), "x");
+
+        let new_app = root.join("extracted/PowerBeamer.app");
+        write(&new_app.join("Contents/MacOS/powerbeamer"), "new binary");
+        write(&new_app.join("Contents/Info.plist"), "0.1.1");
+        std::os::unix::fs::symlink("powerbeamer", new_app.join("Contents/MacOS/presenter")).unwrap();
+
+        assert_eq!(enclosing_app_bundle(&installed.join("Contents/MacOS/powerbeamer")), Some(installed.clone()));
+        assert_eq!(find_app_bundle_in_dir(&root.join("extracted")), Some(new_app.clone()));
+
+        replace_app_bundle(&new_app, &installed).unwrap();
+        let read = |p: &str| std::fs::read_to_string(installed.join(p)).unwrap();
+        assert_eq!(read("Contents/MacOS/powerbeamer"), "new binary");
+        assert_eq!(read("Contents/Info.plist"), "0.1.1");
+        assert!(!installed.join("Contents/MacOS/stale_leftover").exists(), "old files are gone");
+        assert!(installed.join("Contents/MacOS/presenter").is_symlink(), "symlinks preserved");
+        assert!(!installed.with_extension("app.old").exists() && !installed.with_extension("app.updating").exists());
+        assert_eq!(
+            bundle_short_version("<dict>\n  <key>CFBundleShortVersionString</key>\n  <string>0.1.1</string>\n</dict>").as_deref(),
+            Some("0.1.1")
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}
+

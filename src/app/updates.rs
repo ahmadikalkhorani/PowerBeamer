@@ -107,6 +107,13 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
         let info_cell = update_info_cell.clone();
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_secs(2));
+            // Finish a half-applied update from an older updater before looking for new ones,
+            // so the two never download/install at the same time.
+            match updater::repair_stale_bundle(updater::DEFAULT_REPO) {
+                Ok(true) => println!("Repaired app bundle; the complete update applies on next launch."),
+                Ok(false) => {}
+                Err(e) => eprintln!("Notice: couldn't repair app bundle: {}", e),
+            }
             if let Ok(Some(info)) = updater::check_for_update(updater::DEFAULT_REPO) {
                 let _ = slint::invoke_from_event_loop(move || {
                     if let Some(p) = p_weak.upgrade() {
