@@ -111,13 +111,13 @@ impl InPlaceVideoPlayer {
         self.is_playing.store(false, Ordering::SeqCst);
         self.current_time.store(0.0f32.to_bits(), Ordering::SeqCst);
         if let Ok(mut lock) = self.ffmpeg_proc.lock() {
-            if let Some(mut child) = lock.take() {
-                let _ = child.kill();
+            if let Some(child) = lock.take() {
+                kill_child(child);
             }
         }
         if let Ok(mut lock) = self.audio_proc.lock() {
-            if let Some(mut child) = lock.take() {
-                let _ = child.kill();
+            if let Some(child) = lock.take() {
+                kill_child(child);
             }
         }
         if let Some(handle) = self.worker_thread.take() {
@@ -125,16 +125,43 @@ impl InPlaceVideoPlayer {
         }
     }
 
+    /// Plays an audio-only clip in the background. The process is owned by this player, so
+    /// `pause`/`stop` end exactly this process and nothing else on the system.
+    pub fn play_audio(&mut self, file_path: &str, start_time_secs: f32) -> bool {
+        self.pause();
+        self.set_current_time(start_time_secs);
+        let base_dir = std::path::Path::new(file_path).parent().unwrap_or(std::path::Path::new("."));
+        let child = if start_time_secs <= 0.01 {
+            find_executable("afplay").and_then(|bin| Command::new(bin).arg(file_path).current_dir(base_dir).spawn().ok())
+        } else {
+            None
+        }
+        .or_else(|| {
+            let bin = find_executable("ffplay")?;
+            Command::new(bin)
+                .args(["-nodisp", "-autoexit", "-loglevel", "quiet", "-ss", &format!("{:.2}", start_time_secs), file_path])
+                .current_dir(base_dir)
+                .spawn()
+                .ok()
+        });
+        let started = child.is_some();
+        if let Ok(mut lock) = self.audio_proc.lock() {
+            *lock = child;
+        }
+        self.is_playing.store(started, Ordering::SeqCst);
+        started
+    }
+
     pub fn pause(&mut self) {
         self.is_playing.store(false, Ordering::SeqCst);
         if let Ok(mut lock) = self.ffmpeg_proc.lock() {
-            if let Some(mut child) = lock.take() {
-                let _ = child.kill();
+            if let Some(child) = lock.take() {
+                kill_child(child);
             }
         }
         if let Ok(mut lock) = self.audio_proc.lock() {
-            if let Some(mut child) = lock.take() {
-                let _ = child.kill();
+            if let Some(child) = lock.take() {
+                kill_child(child);
             }
         }
         if let Some(handle) = self.worker_thread.take() {
@@ -335,3 +362,12 @@ impl Drop for InPlaceVideoPlayer {
     }
 }
 
+
+/// Kills a child process and reaps it on a background thread so no zombie is left behind
+/// and the caller never blocks.
+fn kill_child(mut child: Child) {
+    let _ = child.kill();
+    thread::spawn(move || {
+        let _ = child.wait();
+    });
+}

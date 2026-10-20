@@ -652,14 +652,8 @@ impl MediaResolver {
             raw_candidates.extend(tex_paths.clone());
         }
 
-        // 2. Fallback match for Beamer decks with \setbeameroption{show notes}
-        // (Where odd pages are slides: page 1 -> frame 1, page 3 -> frame 2, page 5 -> frame 3, page 7 -> frame 4)
-        if raw_candidates.is_empty() && page_index % 2 == 1 {
-            let beamer_frame_index = (page_index + 1) / 2;
-            if let Some(tex_paths) = companion_map.get(&beamer_frame_index) {
-                raw_candidates.extend(tex_paths.clone());
-            }
-        }
+        // (Notes-interleaved decks need no special case here: the loader already maps physical
+        // pages to frame indices before calling us.)
 
         // 3. Match from companion frames by frame title if present in page text
         let companion_frames = Self::scan_companion_frames(pdf_path);
@@ -673,11 +667,14 @@ impl MediaResolver {
             }
         }
 
-        // 4. Candidates from PDF page text (e.g. sample_video.mp4 mentioned on slide)
-        let text_candidates = Self::extract_media_from_text(page_text);
-        for tc in text_candidates {
-            if !raw_candidates.contains(&tc) {
-                raw_candidates.push(tc);
+        // 4. Candidates from PDF page text (e.g. sample_video.mp4 mentioned on slide). Only a
+        // last resort without a companion .tex: prose that merely mentions a file name would
+        // otherwise grow a media player.
+        if companion_map.is_empty() && companion_frames.is_empty() {
+            for tc in Self::extract_media_from_text(page_text) {
+                if !raw_candidates.contains(&tc) {
+                    raw_candidates.push(tc);
+                }
             }
         }
 
@@ -714,7 +711,7 @@ impl MediaResolver {
 
             let rect = companion_frames
                 .iter()
-                .find(|f| f.frame_index == page_index || (page_index % 2 == 1 && f.frame_index == (page_index + 1) / 2))
+                .find(|f| f.frame_index == page_index)
                 .and_then(|f| f.media_rects.get(&raw).copied())
                 .unwrap_or([0.15, 0.26, 0.70, 0.50]);
 

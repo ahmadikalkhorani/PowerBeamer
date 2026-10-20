@@ -3,6 +3,7 @@ use super::beamer::MediaClip;
 use crate::ink::SlideInking;
 use image::{Rgba, RgbaImage};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RenderQuality {
@@ -25,6 +26,16 @@ impl RenderQuality {
             RenderQuality::Eco => "Eco Battery (150 DPI)",
             RenderQuality::Balanced => "Balanced (300 DPI)",
             RenderQuality::UltraVector => "Ultra Vector (600 DPI)",
+        }
+    }
+    /// Inverse of `label` (also accepts any string naming the DPI).
+    pub fn from_label(label: &str) -> Self {
+        if label.contains("600") {
+            RenderQuality::UltraVector
+        } else if label.contains("300") {
+            RenderQuality::Balanced
+        } else {
+            RenderQuality::Eco
         }
     }
 }
@@ -78,29 +89,6 @@ impl PdfLinkInfo {
     }
 }
 
-/// Lazily converted GPU-ready `slint::Image` handles (cheap to clone, shared pixel buffer).
-/// Cloning a slide yields an empty cache; call `reset()` whenever pixel data changes.
-#[derive(Default)]
-pub struct SlideGpuCache {
-    pub presenter: std::cell::RefCell<Option<slint::Image>>,
-    pub audience: std::cell::RefCell<Option<slint::Image>>,
-    pub notes: std::cell::RefCell<Option<slint::Image>>,
-}
-
-impl Clone for SlideGpuCache {
-    fn clone(&self) -> Self {
-        Self::default()
-    }
-}
-
-impl SlideGpuCache {
-    pub fn reset(&self) {
-        *self.presenter.borrow_mut() = None;
-        *self.audience.borrow_mut() = None;
-        *self.notes.borrow_mut() = None;
-    }
-}
-
 #[derive(Clone)]
 pub struct Slide {
     pub page_index: usize,
@@ -117,11 +105,14 @@ pub struct Slide {
     pub media_clips: Vec<MediaClip>,
     pub inking: SlideInking,
     pub links: Vec<PdfLinkInfo>,
-    // Rendered slide cache
-    pub audience_image: RgbaImage,
-    pub presenter_image: RgbaImage,
-    pub notes_image: Option<RgbaImage>,
-    pub gpu_cache: SlideGpuCache,
+    /// Fingerprint of the page's text (0 = none), used to re-identify a slide when the
+    /// source PDF is rebuilt and pages shift.
+    pub content_hash: u64,
+    // Rendered slide cache. Shared via `Arc`: the presenter image is usually the same
+    // pixels as the audience image, and cloning a slide must not duplicate megabytes.
+    pub audience_image: Arc<RgbaImage>,
+    pub presenter_image: Arc<RgbaImage>,
+    pub notes_image: Option<Arc<RgbaImage>>,
 }
 
 impl Slide {
@@ -303,8 +294,8 @@ impl PresentationDeck {
         } else {
             let mut img = RgbaImage::new(w, h);
             let bg_color = Rgba(bg_rgba);
-            for p in img.pixels_mut() {
-                *p = bg_color;
+            for px in img.as_mut().chunks_exact_mut(4) {
+                px.copy_from_slice(&bg_color.0);
             }
 
             // Contrast line color based on luminance
@@ -382,6 +373,7 @@ impl PresentationDeck {
                 }
             }
 
+            let img = Arc::new(img);
             let pres = img.clone();
             let title = match template_kind {
                 "ruled" => format!("Ruled Note #{}", insert_idx + 1),
@@ -412,11 +404,11 @@ impl PresentationDeck {
             aspect_ratio,
             media_clips: Vec::new(),
             inking: SlideInking::new(),
+            content_hash: 0,
             links: Vec::new(),
             audience_image: aud_img,
             presenter_image: pres_img,
             notes_image: None,
-            gpu_cache: Default::default(),
         };
 
         self.slides.insert(insert_idx, slide);
@@ -425,6 +417,121 @@ impl PresentationDeck {
         }
         self.current_index = insert_idx;
         insert_idx
+    }
+
+    /// Replaces the PDF-derived slides with a freshly loaded copy of the source PDF while
+    /// keeping user work. Each old PDF slide is matched to a new one by page text first (so ink
+    /// follows its slide when pages are added or removed earlier in the deck), then by physical
+    /// page number. Ink moves to the matched slide, inserted pages stay after the slide they
+    /// followed, and the current slide is preserved when it still exists.
+    pub fn merge_reloaded(&mut self, fresh: Vec<Slide>, toc: Vec<TocEntry>) {
+        use std::collections::{HashMap, VecDeque};
+
+        let old = std::mem::take(&mut self.slides);
+        let old_current = self.current_index;
+
+        // Old PDF slides, plus inserted slides keyed by the old PDF slide they followed.
+        let mut old_pdf: Vec<(usize, Slide)> = Vec::new(); // (old deck index, slide)
+        let mut inserted_after: HashMap<Option<usize>, Vec<(usize, Slide)>> = HashMap::new();
+        for (i, slide) in old.into_iter().enumerate() {
+            if slide.is_whiteboard {
+                let anchor = old_pdf.len().checked_sub(1);
+                inserted_after.entry(anchor).or_default().push((i, slide));
+            } else {
+                old_pdf.push((i, slide));
+            }
+        }
+
+        // Match new slides to old PDF slides: content first, page number second.
+        let mut by_hash: HashMap<u64, VecDeque<usize>> = HashMap::new();
+        let mut by_page: HashMap<usize, usize> = HashMap::new();
+        for (k, (_, s)) in old_pdf.iter().enumerate() {
+            if s.content_hash != 0 {
+                by_hash.entry(s.content_hash).or_default().push_back(k);
+            }
+            by_page.entry(s.physical_page_index).or_insert(k);
+        }
+        let mut claimed = vec![false; old_pdf.len()];
+        let mut matched: Vec<Option<usize>> = vec![None; fresh.len()];
+        for (n, s) in fresh.iter().enumerate() {
+            if s.content_hash == 0 {
+                continue;
+            }
+            if let Some(queue) = by_hash.get_mut(&s.content_hash) {
+                while let Some(k) = queue.pop_front() {
+                    if !claimed[k] {
+                        claimed[k] = true;
+                        matched[n] = Some(k);
+                        break;
+                    }
+                }
+            }
+        }
+        for (n, s) in fresh.iter().enumerate() {
+            if matched[n].is_none() {
+                if let Some(&k) = by_page.get(&s.physical_page_index) {
+                    if !claimed[k] {
+                        claimed[k] = true;
+                        matched[n] = Some(k);
+                    }
+                }
+            }
+        }
+
+        let mut new_current = None;
+        let mut out = Vec::with_capacity(fresh.len());
+        let mut push_inserted = |key: Option<usize>, out: &mut Vec<Slide>, new_current: &mut Option<usize>| {
+            for (old_idx, slide) in inserted_after.remove(&key).unwrap_or_default() {
+                if old_idx == old_current {
+                    *new_current = Some(out.len());
+                }
+                out.push(slide);
+            }
+        };
+
+        push_inserted(None, &mut out, &mut new_current);
+        for (mut slide, m) in fresh.into_iter().zip(matched) {
+            let Some(k) = m else {
+                out.push(slide);
+                continue;
+            };
+            let (old_idx, old_slide) = &mut old_pdf[k];
+            slide.inking = std::mem::replace(&mut old_slide.inking, crate::ink::SlideInking::new());
+            if *old_idx == old_current {
+                new_current = Some(out.len());
+            }
+            out.push(slide);
+            push_inserted(Some(k), &mut out, &mut new_current);
+        }
+        // Inserted slides whose anchor slide no longer exists go to the end, in original order.
+        let mut orphans: Vec<(usize, Slide)> = inserted_after.into_values().flatten().collect();
+        orphans.sort_by_key(|(i, _)| *i);
+        for (old_idx, slide) in orphans {
+            if old_idx == old_current {
+                new_current = Some(out.len());
+            }
+            out.push(slide);
+        }
+
+        for (i, s) in out.iter_mut().enumerate() {
+            s.page_index = i + 1;
+        }
+        self.current_index = new_current.unwrap_or(old_current).min(out.len().saturating_sub(1));
+        self.slides = out;
+        self.toc = toc;
+    }
+
+    /// Fingerprint of a page's text for `content_hash`. Digits are ignored so page-number
+    /// footers ("3 / 12") don't change when slides shift; empty text yields 0 (no identity).
+    pub fn text_fingerprint(text: &str) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        let mut any = false;
+        for c in text.chars().filter(|c| !c.is_ascii_digit() && !c.is_whitespace()) {
+            c.hash(&mut h);
+            any = true;
+        }
+        if any { h.finish().max(1) } else { 0 }
     }
 
     /// Insert a new whiteboard page directly after the current slide
@@ -442,7 +549,7 @@ impl PresentationDeck {
         let (w, h) = (1600, 900);
 
         // Slide 1: Title Slide
-        let s1_img = render_demo_slide(
+        let s1_img = Arc::new(render_demo_slide(
             w,
             h,
             "Advanced Quantum Field Theory & Computation",
@@ -454,7 +561,7 @@ impl PresentationDeck {
             ],
             "#0f172a",
             "#38bdf8",
-        );
+        ));
         self.slides.push(Slide {
             page_index: 1,
             physical_page_index: 1,
@@ -469,18 +576,18 @@ impl PresentationDeck {
             aspect_ratio: 16.0 / 9.0,
             media_clips: Vec::new(),
             inking: SlideInking::new(),
+            content_hash: 0,
             links: vec![
                 PdfLinkInfo::new_url([0.05, 0.90, 0.35, 0.08], "https://github.com".to_string()),
                 PdfLinkInfo::new_page([0.80, 0.90, 0.16, 0.08], 1),
             ],
-            audience_image: s1_img.clone(),
-            presenter_image: s1_img,
+            presenter_image: s1_img.clone(),
+            audience_image: s1_img,
             notes_image: None,
-            gpu_cache: Default::default(),
         });
 
         // Slide 2: Equations & Formulas Slide
-        let s2_img = render_demo_slide(
+        let s2_img = Arc::new(render_demo_slide(
             w,
             h,
             "Yang-Mills Action & Path Integral Derivation",
@@ -493,7 +600,7 @@ impl PresentationDeck {
             ],
             "#1e1b4b",
             "#a855f7",
-        );
+        ));
         self.slides.push(Slide {
             page_index: 2,
             physical_page_index: 2,
@@ -508,20 +615,20 @@ impl PresentationDeck {
             aspect_ratio: 16.0 / 9.0,
             media_clips: Vec::new(),
             inking: SlideInking::new(),
+            content_hash: 0,
             links: vec![
                 PdfLinkInfo::new_page([0.80, 0.90, 0.16, 0.08], 3),
             ],
-            audience_image: s2_img.clone(),
-            presenter_image: s2_img,
+            presenter_image: s2_img.clone(),
+            audience_image: s2_img,
             notes_image: None,
-            gpu_cache: Default::default(),
         });
 
         // Slide 3: Beamer pgfpages Dual-Screen Simulated Slide
         // Dual screen has double width (3200 x 900)
         let _dual_w = 3200;
         let _dual_h = 900;
-        let s3_audience = render_demo_slide(
+        let s3_audience = Arc::new(render_demo_slide(
             w,
             h,
             "Beamer pgfpages: Automatic Dual-Screen Detection",
@@ -534,7 +641,7 @@ impl PresentationDeck {
             ],
             "#064e3b",
             "#34d399",
-        );
+        ));
         let s3_notes = render_demo_slide(
             w,
             h,
@@ -563,15 +670,15 @@ impl PresentationDeck {
             aspect_ratio: 16.0 / 9.0,
             media_clips: Vec::new(),
             inking: SlideInking::new(),
+            content_hash: 0,
             links: Vec::new(),
-            audience_image: s3_audience.clone(),
-            presenter_image: s3_audience,
-            notes_image: Some(s3_notes),
-            gpu_cache: Default::default(),
+            presenter_image: s3_audience.clone(),
+            audience_image: s3_audience,
+            notes_image: Some(Arc::new(s3_notes)),
         });
 
         // Slide 4: Embedded Multimedia Demo
-        let s4_img = render_demo_slide(
+        let s4_img = Arc::new(render_demo_slide(
             w,
             h,
             "Embedded Beamer Multimedia & Dynamic Video",
@@ -584,7 +691,7 @@ impl PresentationDeck {
             ],
             "#311042",
             "#f43f5e",
-        );
+        ));
         self.slides.push(Slide {
             page_index: 4,
             physical_page_index: 4,
@@ -607,13 +714,13 @@ impl PresentationDeck {
                 is_resolved: false,
             }],
             inking: SlideInking::new(),
+            content_hash: 0,
             links: vec![
                 PdfLinkInfo::new_page([0.05, 0.90, 0.16, 0.08], 0),
             ],
-            audience_image: s4_img.clone(),
-            presenter_image: s4_img,
+            presenter_image: s4_img.clone(),
+            audience_image: s4_img,
             notes_image: None,
-            gpu_cache: Default::default(),
         });
 
         self.toc = vec![
@@ -665,8 +772,9 @@ fn render_demo_slide(
         let r = (bg_color[0] as f32 + grad).min(255.0) as u8;
         let g = (bg_color[1] as f32 + grad).min(255.0) as u8;
         let b = (bg_color[2] as f32 + grad).min(255.0) as u8;
-        for x in 0..w {
-            img.put_pixel(x, y, Rgba([r, g, b, 255]));
+        let row = (y * w * 4) as usize..((y + 1) * w * 4) as usize;
+        for px in img.as_mut()[row].chunks_exact_mut(4) {
+            px.copy_from_slice(&[r, g, b, 255]);
         }
     }
 

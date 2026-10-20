@@ -464,7 +464,7 @@ component ToolSizeCard inherits Rectangle {
 
 export component PresenterWindow inherits Window {
     title: "PowerBeamer - " + root.document_title;
-    icon: @image-url("icons/app_icon.png");
+    icon: @image-url("icons/app_icon.svg");
     min-width: 1100px;
     min-height: 720px;
     background: #18181a;
@@ -486,6 +486,13 @@ export component PresenterWindow inherits Window {
     in-out property <bool> is_dual_screen: false;
     in-out property <image> notes_slide_image;
     in-out property <image> ink_overlay_image;
+    // Laser trail layer: small image covering only the trail's bounding box (normalized rect)
+    in-out property <image> laser_layer_image;
+    in-out property <bool> laser_layer_visible: false;
+    in-out property <float> laser_layer_x: 0;
+    in-out property <float> laser_layer_y: 0;
+    in-out property <float> laser_layer_w: 0;
+    in-out property <float> laser_layer_h: 0;
     in-out property <bool> laser_active: false;
     in-out property <float> laser_x: 0.5;
     in-out property <float> laser_y: 0.5;
@@ -638,6 +645,15 @@ export component PresenterWindow inherits Window {
     callback canvas_pointer_up();
     callback export_pdf();
     callback open_pdf();
+    in-out property <bool> deck_loading: false;
+    in-out property <bool> toast_visible: false;
+    in-out property <string> toast_text: "";
+    in-out property <bool> toast_is_error: false;
+    // Auto-reload the deck when the source PDF changes on disk (e.g. after a LaTeX rebuild)
+    in-out property <bool> sync_with_source: true;
+    in-out property <bool> has_source_file: false;
+    in-out property <string> sync_status_text: "";
+    callback toggle_sync_with_source(bool);
 
     // Pen Tool Callbacks
     callback toggle_auto_shape(bool);
@@ -916,7 +932,7 @@ export component PresenterWindow inherits Window {
                         clip: true;
 
                         Image {
-                            source: @image-url("icons/app_icon.png");
+                            source: @image-url("icons/app_icon.svg");
                             width: 20px;
                             height: 20px;
                             x: (parent.width - self.width) / 2;
@@ -1046,7 +1062,7 @@ export component PresenterWindow inherits Window {
                         clip: true;
 
                         Image {
-                            source: @image-url("icons/app_icon.png");
+                            source: @image-url("icons/app_icon.svg");
                             width: 20px;
                             height: 20px;
                             x: (parent.width - self.width) / 2;
@@ -1299,6 +1315,73 @@ export component PresenterWindow inherits Window {
                 HorizontalLayout {
                     spacing: 8px;
                     alignment: end;
+
+                    // Source PDF Sync Pill (reload deck when the original PDF is rebuilt)
+                    if root.has_source_file: Rectangle {
+                        height: 28px;
+                        border-radius: 6px;
+                        background: touch_sync.has-hover ? #1a2e23 : #16201a;
+                        border-width: 1.5px;
+                        border-color: root.sync_with_source ? #16a34a : #3a3a42;
+                        y: 10px;
+                        z: touch_sync.has-hover ? 100 : 0;
+
+                        width: 28px;
+                        Image {
+                            source: root.sync_with_source ? @image-url("icons/sync.svg") : @image-url("icons/sync_off.svg");
+                            width: 16px;
+                            height: 16px;
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            colorize: root.deck_loading ? #fbbf24 : root.sync_with_source ? #4ade80 : #9ca3af;
+                        }
+                        touch_sync := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.sync_with_source = !root.sync_with_source;
+                                root.toggle_sync_with_source(root.sync_with_source);
+                            }
+                        }
+
+                        if touch_sync.has-hover: Rectangle {
+                            width: sync_tooltip_layout.preferred-width;
+                            height: sync_tooltip_layout.preferred-height;
+                            x: (parent.width - self.width) / 2;
+                            y: 34px;
+                            border-radius: 6px;
+                            background: #141416f5;
+                            border-width: 1px;
+                            border-color: #16a34a70;
+                            drop-shadow-blur: 10px;
+                            drop-shadow-color: #000000cc;
+
+                            sync_tooltip_layout := VerticalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                padding-top: 5px;
+                                padding-bottom: 5px;
+                                spacing: 3px;
+                                Text {
+                                    text: root.sync_with_source ? "Sync with Source PDF: On" : "Sync with Source PDF: Off";
+                                    font-size: 11px;
+                                    font-weight: 700;
+                                    color: #ffffff;
+                                }
+                                Text {
+                                    text: root.sync_with_source
+                                        ? "Reloads slides when the PDF is rebuilt. Ink is kept."
+                                        : "Click to reload automatically when the PDF changes.";
+                                    font-size: 10px;
+                                    color: #a1a1aa;
+                                }
+                                if root.sync_status_text != "": Text {
+                                    text: root.sync_status_text;
+                                    font-size: 10px;
+                                    color: #4ade80;
+                                }
+                            }
+                        }
+                    }
 
                     // Render Quality Indicator Pill (Interactive Ultra / Balanced / Eco)
                     Rectangle {
@@ -2363,7 +2446,7 @@ export component PresenterWindow inherits Window {
                             width: 100%;
                             height: 100%;
                             source: root.video_frame_image;
-                            image-fit: contain;
+                            image-fit: fill;
                         }
                     }
 
@@ -2372,6 +2455,15 @@ export component PresenterWindow inherits Window {
                         width: 100%;
                         height: 100%;
                         source: root.ink_overlay_image;
+                        image-fit: fill;
+                    }
+
+                    if root.laser_layer_visible: Image {
+                        x: root.laser_layer_x * parent.width;
+                        y: root.laser_layer_y * parent.height;
+                        width: root.laser_layer_w * parent.width;
+                        height: root.laser_layer_h * parent.height;
+                        source: root.laser_layer_image;
                         image-fit: fill;
                     }
 
@@ -6295,7 +6387,7 @@ export component PresenterWindow inherits Window {
                             clip: true;
 
                             Image {
-                                source: @image-url("icons/app_icon.png");
+                                source: @image-url("icons/app_icon.svg");
                                 width: 22px;
                                 height: 22px;
                                 x: (parent.width - self.width) / 2;
@@ -6363,7 +6455,7 @@ export component PresenterWindow inherits Window {
                                 clip: true;
 
                                 Image {
-                                    source: @image-url("icons/app_icon.png");
+                                    source: @image-url("icons/app_icon.svg");
                                     width: 36px;
                                     height: 36px;
                                     x: (parent.width - self.width) / 2;
@@ -6985,18 +7077,70 @@ export component PresenterWindow inherits Window {
                 }
             }
         }
+
+    // Toast: transient status / error messages (load failures, sync results, missing media)
+    if root.toast_visible: Rectangle {
+        x: (root.width - self.width) / 2;
+        y: root.height - self.height - 28px;
+        z: 1000;
+        width: min(toast_layout.preferred-width, root.width - 48px);
+        height: toast_layout.preferred-height;
+        border-radius: 8px;
+        background: root.toast_is_error ? #3b1518f2 : #15291df2;
+        border-width: 1px;
+        border-color: root.toast_is_error ? #ef4444 : #22c55e;
+        drop-shadow-blur: 14px;
+        drop-shadow-color: #000000cc;
+
+        toast_layout := HorizontalLayout {
+            padding-left: 14px;
+            padding-right: 10px;
+            padding-top: 8px;
+            padding-bottom: 8px;
+            spacing: 10px;
+            Text {
+                text: root.toast_text;
+                color: root.toast_is_error ? #fecaca : #bbf7d0;
+                font-size: 12px;
+                wrap: word-wrap;
+                vertical-alignment: center;
+            }
+            Rectangle {
+                width: 18px;
+                Image {
+                    source: @image-url("icons/close.svg");
+                    width: 12px;
+                    height: 12px;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    colorize: #a1a1aa;
+                }
+                TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.toast_visible = false; }
+                }
+            }
+        }
+    }
 }
 
 // --- AUDIENCE VIEW (Clean display for Projector / External Monitor) ---
 export component AudienceWindow inherits Window {
     title: "PowerBeamer - Audience View (Projector)";
-    icon: @image-url("icons/app_icon.png");
+    icon: @image-url("icons/app_icon.svg");
     min-width: 800px;
     min-height: 600px;
     background: #000000;
 
     in-out property <image> slide_image;
     in-out property <image> ink_image;
+    // Laser trail layer: small image covering only the trail's bounding box (normalized rect)
+    in-out property <image> laser_layer_image;
+    in-out property <bool> laser_layer_visible: false;
+    in-out property <float> laser_layer_x: 0;
+    in-out property <float> laser_layer_y: 0;
+    in-out property <float> laser_layer_w: 0;
+    in-out property <float> laser_layer_h: 0;
     in-out property <bool> laser_visible: false;
     in-out property <float> laser_x: 0.5;
     in-out property <float> laser_y: 0.5;
@@ -7056,7 +7200,7 @@ export component AudienceWindow inherits Window {
                     width: 100%;
                     height: 100%;
                     source: root.video_frame_image;
-                    image-fit: contain;
+                    image-fit: fill;
                 }
             }
 
@@ -7064,6 +7208,15 @@ export component AudienceWindow inherits Window {
                 width: 100%;
                 height: 100%;
                 source: root.ink_image;
+                image-fit: fill;
+            }
+
+            if root.laser_layer_visible: Image {
+                x: root.laser_layer_x * parent.width;
+                y: root.laser_layer_y * parent.height;
+                width: root.laser_layer_w * parent.width;
+                height: root.laser_layer_h * parent.height;
+                source: root.laser_layer_image;
                 image-fit: fill;
             }
 
@@ -7127,7 +7280,7 @@ export component AudienceWindow inherits Window {
 // --- DETACHED NOTES WINDOW (Floating for 3rd monitor or tablet) ---
 export component NotesWindow inherits Window {
     title: "PowerBeamer - Speaker Notes (Detached)";
-    icon: @image-url("icons/app_icon.png");
+    icon: @image-url("icons/app_icon.svg");
     min-width: 400px;
     min-height: 500px;
     background: #18181b;

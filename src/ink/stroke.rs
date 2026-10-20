@@ -134,15 +134,28 @@ impl Stroke {
         if self.is_shape || self.points.len() < 3 {
             return self.points.clone();
         }
+        self.smoothed_segments(0, self.points.len() - 1)
+    }
 
-        let mut smoothed = Vec::with_capacity(self.points.len() * 3);
-        smoothed.push(self.points[0]);
+    /// Catmull-Rom smoothed polyline covering raw segments `[seg_from, seg_to)`
+    /// (segment `i` joins `points[i]` and `points[i + 1]`). The result starts at
+    /// `points[seg_from]` and ends at `points[seg_to]`. Segment `i` only depends on
+    /// points `i-1..=i+2`, so segments `< len - 2` never change as new points arrive.
+    pub fn smoothed_segments(&self, seg_from: usize, seg_to: usize) -> Vec<Point> {
+        let n = self.points.len();
+        let seg_to = seg_to.min(n.saturating_sub(1));
+        if seg_from >= seg_to {
+            return Vec::new();
+        }
 
-        for i in 0..self.points.len() - 1 {
+        let mut smoothed = Vec::with_capacity((seg_to - seg_from) * 4 + 1);
+        smoothed.push(self.points[seg_from]);
+
+        for i in seg_from..seg_to {
             let p0 = if i == 0 { &self.points[0] } else { &self.points[i - 1] };
             let p1 = &self.points[i];
             let p2 = &self.points[i + 1];
-            let p3 = if i + 2 < self.points.len() { &self.points[i + 2] } else { p2 };
+            let p3 = if i + 2 < n { &self.points[i + 2] } else { p2 };
 
             let steps = 4;
             for s in 1..steps {
@@ -214,7 +227,6 @@ pub fn point_in_polygon(px: f32, py: f32, polygon: &[Point]) -> bool {
 #[derive(Clone, Debug)]
 pub struct LaserTrail {
     pub strokes: Vec<Vec<(f32, f32, u64)>>, // Disjoint strokes: Vec<Vec<(x, y, timestamp_ms)>>
-    pub positions: Vec<(f32, f32, u64)>,    // Flattened positions of all active points (for backwards compatibility)
     pub duration_ms: u64,
     pub color_rgba: [u8; 4],
     pub draw_lines: bool,
@@ -225,7 +237,6 @@ impl LaserTrail {
     pub fn new(duration_ms: u64, color_rgba: [u8; 4], draw_lines: bool) -> Self {
         Self {
             strokes: Vec::new(),
-            positions: Vec::new(),
             duration_ms,
             color_rgba,
             draw_lines,
@@ -234,7 +245,18 @@ impl LaserTrail {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.positions.is_empty()
+        // `prune` drops empty strokes, but the current stroke may still be empty after `start_stroke`.
+        self.strokes.iter().all(|s| s.is_empty())
+    }
+
+    /// Total live points across all strokes.
+    pub fn point_count(&self) -> usize {
+        self.strokes.iter().map(Vec::len).sum()
+    }
+
+    /// Most recently added point.
+    pub fn last_point(&self) -> Option<(f32, f32, u64)> {
+        self.strokes.iter().rev().find_map(|s| s.last().copied())
     }
 
     pub fn start_stroke(&mut self) {
@@ -263,7 +285,6 @@ impl LaserTrail {
             let dy = y - last.1;
             if dx * dx + dy * dy < 1e-7 {
                 last.2 = now_ms;
-                self.sync_positions();
                 return;
             }
         }
@@ -277,14 +298,6 @@ impl LaserTrail {
             stroke.retain(|&(_, _, t)| t >= cutoff);
         }
         self.strokes.retain(|stroke| !stroke.is_empty());
-        self.sync_positions();
-    }
-
-    fn sync_positions(&mut self) {
-        self.positions.clear();
-        for stroke in &self.strokes {
-            self.positions.extend_from_slice(stroke);
-        }
     }
 
     /// Generates smooth Centripetal Catmull-Rom spline interpolated points for a stroke.
@@ -397,13 +410,6 @@ impl LaserTrail {
     }
 
     pub fn smoothed_strokes(&self, now_ms: u64) -> Vec<Vec<(f32, f32, f32)>> {
-        if self.strokes.is_empty() && !self.positions.is_empty() {
-            let s = Self::smooth_stroke_points(&self.positions, self.duration_ms, now_ms);
-            if !s.is_empty() {
-                return vec![s];
-            }
-            return Vec::new();
-        }
         self.strokes
             .iter()
             .filter(|s| !s.is_empty())

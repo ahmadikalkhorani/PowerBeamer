@@ -300,7 +300,7 @@ mod tests {
 
         // 5. Save visual verification composite images
         let artifact_dir = Path::new("/Users/sabazakeri/.gemini/antigravity-ide/brain/df976f94-f201-4369-a2c9-04a9a4088606");
-        let mut composite = test_slide.audience_image.clone();
+        let mut composite = (*test_slide.audience_image).clone();
         let rendered_ink = InkingRasterizer::render_strokes(
             composite.width(),
             composite.height(),
@@ -464,7 +464,7 @@ mod tests {
         // 2. Rotate slide 3
         let old_w = deck.slides[2].audience_image.width();
         let old_h = deck.slides[2].audience_image.height();
-        deck.slides[2].audience_image = image::imageops::rotate90(&deck.slides[2].audience_image);
+        deck.slides[2].audience_image = std::sync::Arc::new(image::imageops::rotate90(&*deck.slides[2].audience_image));
         assert_eq!(deck.slides[2].audience_image.width(), old_h);
         assert_eq!(deck.slides[2].audience_image.height(), old_w);
 
@@ -855,7 +855,7 @@ mod tests {
         laser_trail.add(0.3, 0.5, 1400);
         laser_trail.add(0.4, 0.5, 1600);
         laser_trail.add(0.5, 0.5, 1800);
-        assert_eq!(laser_trail.positions.len(), 5);
+        assert_eq!(laser_trail.point_count(), 5);
 
         // Render laser lines onto 800x600 canvas
         let img = InkingRasterizer::render_strokes(800, 600, &[], None, Some(&laser_trail));
@@ -902,11 +902,11 @@ mod tests {
         // 3. Test pruning (time progression)
         // At t = 3000, points at t <= 1200 (1000, 1200) should be pruned because cutoff is 3000 - 1800 = 1200
         laser_trail.prune(3100); // cutoff 1300
-        assert_eq!(laser_trail.positions.len(), 3); // 1400, 1600, 1800 remain
+        assert_eq!(laser_trail.point_count(), 3); // 1400, 1600, 1800 remain
 
         // At t = 4000 (cutoff 2200), all points expire and vanish smoothly
         laser_trail.prune(4000);
-        assert_eq!(laser_trail.positions.len(), 0);
+        assert_eq!(laser_trail.point_count(), 0);
 
         let img_empty = InkingRasterizer::render_strokes(800, 600, &[], None, Some(&laser_trail));
         let active_pixels = img_empty.pixels().filter(|p| p[3] > 0).count();
@@ -936,17 +936,17 @@ mod tests {
 
             if dur_sec == 0.0 {
                 test_trail.prune(1001);
-                assert_eq!(test_trail.positions.len(), 0, "0.0s fade duration should clear immediately");
+                assert_eq!(test_trail.point_count(), 0, "0.0s fade duration should clear immediately");
             } else if dur_sec == 0.5 {
                 test_trail.prune(1400); // 400ms < 500ms -> still alive
-                assert_eq!(test_trail.positions.len(), 1);
+                assert_eq!(test_trail.point_count(), 1);
                 test_trail.prune(1600); // 600ms >= 500ms -> pruned
-                assert_eq!(test_trail.positions.len(), 0);
+                assert_eq!(test_trail.point_count(), 0);
             } else if dur_sec == 3.2 {
                 test_trail.prune(3000); // 2000ms < 3200ms -> still alive
-                assert_eq!(test_trail.positions.len(), 1);
+                assert_eq!(test_trail.point_count(), 1);
                 test_trail.prune(4500); // 3500ms >= 3200ms -> pruned
-                assert_eq!(test_trail.positions.len(), 0);
+                assert_eq!(test_trail.point_count(), 0);
             }
         }
     }
@@ -975,7 +975,7 @@ mod tests {
         laser_trail.end_stroke();
 
         assert_eq!(laser_trail.strokes.len(), 2, "Must contain exactly 2 separate strokes");
-        assert_eq!(laser_trail.positions.len(), 8, "Total points across strokes should be 8");
+        assert_eq!(laser_trail.point_count(), 8, "Total points across strokes should be 8");
 
         // Render at t = 1500 (both strokes active and visible)
         let img = InkingRasterizer::render_strokes(1000, 500, &[], None, Some(&laser_trail));
@@ -2048,8 +2048,9 @@ mod tests {
                 media_clips: Vec::new(),
                 inking: presenter::ink::SlideInking::new(),
                 links: Vec::new(),
-                audience_image: RgbaImage::new(100, 100),
-                presenter_image: RgbaImage::new(100, 100),
+                content_hash: 0,
+                audience_image: std::sync::Arc::new(RgbaImage::new(100, 100)),
+                presenter_image: std::sync::Arc::new(RgbaImage::new(100, 100)),
                 notes_image: None,
             });
         }
@@ -2837,10 +2838,84 @@ PRESENTER NOTES (Slide 1):\n\
         assert!(!os_name.is_empty());
         assert!(!arch_name.is_empty());
     }
+
+    #[test]
+    fn test_merge_reloaded_keeps_ink_and_inserted_slides() {
+        use presenter::ink::{Point, Stroke};
+        use presenter::pdf::{PresentationDeck, RenderQuality};
+
+        let mut deck = PresentationDeck::new_demo_deck(RenderQuality::Eco);
+        let fresh = deck.slides.clone();
+        let n = fresh.len();
+
+        // Ink on the 2nd PDF slide, an inserted page after it, and the inserted page is current.
+        let mut stroke = Stroke::new(7, [255, 0, 0, 255], 2.0, false);
+        stroke.add_point(Point::new(0.5, 0.5, 1.0, 0));
+        deck.slides[1].inking.strokes.push(stroke);
+        deck.current_index = 1;
+        deck.insert_page_with_template(0, "grid", [255, 255, 255, 255]);
+        assert_eq!(deck.current_index, 2);
+
+        deck.merge_reloaded(fresh, Vec::new());
+        assert_eq!(deck.slides.len(), n + 1);
+        assert_eq!(deck.slides[1].inking.strokes.len(), 1, "ink follows its PDF page");
+        assert!(deck.slides[2].is_whiteboard, "inserted page stays after its anchor");
+        assert_eq!(deck.current_index, 2, "current slide is preserved");
+        assert!(deck.slides.iter().enumerate().all(|(i, s)| s.page_index == i + 1));
+    }
+
+    #[test]
+    fn test_movie_rect_matches_pdf_annotation() {
+        use presenter::pdf::{PdfiumLoader, RenderQuality};
+        let path = std::path::Path::new("test_deck/presentation.pdf");
+        let Ok((slides, _)) = PdfiumLoader::load_deck_from_file(path, RenderQuality::Eco) else {
+            return; // pdfium unavailable in this environment
+        };
+        let (slide, clip) = slides
+            .iter()
+            .find_map(|s| s.media_clips.iter().find(|c| c.file_path.ends_with("sample_video.mp4")).map(|c| (s, c)))
+            .expect("video clip");
+        let doc = PdfiumLoader::get_pdfium().unwrap().load_pdf_from_file(path, None).unwrap();
+        let page = doc.pages().get((slide.physical_page_index - 1) as i32).unwrap();
+        let (pw, ph) = (page.width().value, page.height().value);
+        // `\movie` writes /Rect [106.299 30.89 347.244 166.386] (PDF points, bottom-left origin).
+        let expected = [106.299 / pw, (ph - 166.386) / ph, (347.244 - 106.299) / pw, (166.386 - 30.89) / ph];
+        for (got, want) in clip.rect.iter().zip(expected) {
+            assert!((got - want).abs() < 0.01, "rect {:?} vs expected {:?}", clip.rect, expected);
+        }
+    }
+
+    #[test]
+    fn test_merge_reloaded_follows_content_when_pages_shift() {
+        use presenter::ink::{Point, Stroke};
+        use presenter::pdf::{PresentationDeck, RenderQuality};
+
+        let mut deck = PresentationDeck::new_demo_deck(RenderQuality::Eco);
+        for (i, s) in deck.slides.iter_mut().enumerate() {
+            s.content_hash = 100 + i as u64;
+            s.physical_page_index = i + 1;
+        }
+        let mut stroke = Stroke::new(1, [0, 0, 255, 255], 2.0, false);
+        stroke.add_point(Point::new(0.2, 0.2, 1.0, 0));
+        deck.slides[1].inking.strokes.push(stroke);
+        deck.current_index = 1;
+
+        // Author inserted a new slide at the front: every page number shifts by one.
+        let mut fresh = deck.slides.clone();
+        for s in &mut fresh {
+            s.inking.strokes.clear();
+        }
+        let mut new_first = fresh[0].clone();
+        new_first.content_hash = 999;
+        fresh.insert(0, new_first);
+        for (i, s) in fresh.iter_mut().enumerate() {
+            s.physical_page_index = i + 1;
+        }
+
+        deck.merge_reloaded(fresh, Vec::new());
+        assert_eq!(deck.slides[2].inking.strokes.len(), 1, "ink follows the slide's content, not its page number");
+        assert!(deck.slides[1].inking.strokes.is_empty());
+        assert_eq!(deck.current_index, 2, "current slide follows its content too");
+        assert_eq!(PresentationDeck::text_fingerprint("Intro 3 / 12"), PresentationDeck::text_fingerprint("Intro 4 / 13"));
+    }
 }
-
-
-
-
-
-

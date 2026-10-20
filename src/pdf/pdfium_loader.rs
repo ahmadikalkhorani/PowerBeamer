@@ -99,6 +99,10 @@ impl PdfiumLoader {
             }
         }
 
+        let pdf_has_media_annotations = doc.pages().iter().any(|page| {
+            page.annotations().iter().any(|a| is_media_annotation(a.annotation_type()))
+        });
+
         let mut slides = Vec::with_capacity(mappings.len());
         let dpi = quality.dpi();
         let companion_tex_map = crate::pdf::MediaResolver::scan_companion_tex(path);
@@ -122,7 +126,8 @@ impl PdfiumLoader {
             let dynamic_img = rendered_bitmap
                 .as_image()
                 .map_err(|e| format!("Image conversion error: {:?}", e))?;
-            let rgba_img = dynamic_img.to_rgba8();
+            // `into_rgba8` reuses the buffer when pdfium already produced RGBA8 (no extra copy).
+            let rgba_img = dynamic_img.into_rgba8();
 
             // Auto-split dual-screen Beamer pgfpages slides OR load separate note page
             let (audience_img, notes_img) = if let Some(is_vertical) = is_dual_mode {
@@ -153,7 +158,7 @@ impl PdfiumLoader {
                 let note_dynamic = note_bitmap
                     .as_image()
                     .map_err(|e| format!("Image conversion error: {:?}", e))?;
-                (rgba_img, Some(note_dynamic.to_rgba8()))
+                (rgba_img, Some(note_dynamic.into_rgba8()))
             } else {
                 (rgba_img, None)
             };
@@ -209,7 +214,8 @@ impl PdfiumLoader {
                 page_text,
                 &companion_tex_map,
             );
-            if media_clips.is_empty() && m.slide_page_idx + 1 != m.slide_index {
+            // Physical-page lookup only makes sense without a .tex frame mapping to go by.
+            if media_clips.is_empty() && companion_tex_map.is_empty() && m.slide_page_idx + 1 != m.slide_index {
                 media_clips = crate::pdf::MediaResolver::resolve_page_clips(
                     path,
                     m.slide_page_idx + 1,
@@ -218,11 +224,32 @@ impl PdfiumLoader {
                 );
             }
 
-            for clip in &mut media_clips {
-                clip.rect = crate::pdf::MediaResolver::refine_media_rect_from_image(&audience_img, clip.rect);
+            // Exact placement: `\movie` / media9 write Movie/Screen/RichMedia annotations whose
+            // rectangle is precisely the poster graphic. Match them to clips in document order and
+            // only fall back to the image heuristic when the PDF has no such annotation.
+            let media_rects: Vec<[f32; 4]> = slide_page
+                .annotations()
+                .iter()
+                .filter(|a| is_media_annotation(a.annotation_type()))
+                .filter_map(|a| a.bounds().ok())
+                .filter_map(|r| normalize_page_rect(&r, page_width, page_height, is_dual_mode))
+                .filter(|r| r[2] > 0.0 && r[3] > 0.0)
+                .collect();
+            // When the PDF carries media annotations they are the ground truth: a page without one
+            // has no media, whatever the .tex/page-number heuristics matched. Extra matches beyond
+            // the annotation count are heuristic noise too.
+            if pdf_has_media_annotations {
+                media_clips.truncate(media_rects.len());
+            }
+            for (i, clip) in media_clips.iter_mut().enumerate() {
+                clip.rect = match media_rects.get(i) {
+                    Some(exact) => *exact,
+                    None => crate::pdf::MediaResolver::refine_media_rect_from_image(&audience_img, clip.rect),
+                };
             }
 
             let slide_aspect = audience_img.width() as f32 / audience_img.height() as f32;
+            let audience_img = std::sync::Arc::new(audience_img);
 
             // Extract interactive links from PDF slide page
             let mut extracted_links = Vec::new();
@@ -277,40 +304,10 @@ impl PdfiumLoader {
 
                 let Some(target) = target else { continue; };
 
-                let rx = rect.left().value;
-                let ry_bottom = rect.bottom().value;
-                let rw = rect.width().value;
-                let rh = rect.height().value;
-                let ry_top = rect.top().value;
-
-                let (norm_x, norm_y, norm_w, norm_h) = if let Some(is_vertical) = is_dual_mode {
-                    if is_vertical {
-                        let aud_w = page_width / 2.0;
-                        if rx >= aud_w {
-                            continue;
-                        }
-                        let nx = (rx / aud_w).clamp(0.0, 1.0);
-                        let nw = (rw / aud_w).clamp(0.0, 1.0 - nx);
-                        let ny = ((page_height - ry_top) / page_height).clamp(0.0, 1.0);
-                        let nh = (rh / page_height).clamp(0.0, 1.0 - ny);
-                        (nx, ny, nw, nh)
-                    } else {
-                        let aud_h = page_height / 2.0;
-                        if ry_bottom < aud_h {
-                            continue;
-                        }
-                        let nx = (rx / page_width).clamp(0.0, 1.0);
-                        let nw = (rw / page_width).clamp(0.0, 1.0 - nx);
-                        let ny = ((page_height - ry_top) / aud_h).clamp(0.0, 1.0);
-                        let nh = (rh / aud_h).clamp(0.0, 1.0 - ny);
-                        (nx, ny, nw, nh)
-                    }
-                } else {
-                    let nx = (rx / page_width).clamp(0.0, 1.0);
-                    let nw = (rw / page_width).clamp(0.0, 1.0 - nx);
-                    let ny = ((page_height - ry_top) / page_height).clamp(0.0, 1.0);
-                    let nh = (rh / page_height).clamp(0.0, 1.0 - ny);
-                    (nx, ny, nw, nh)
+                let Some([norm_x, norm_y, norm_w, norm_h]) =
+                    normalize_page_rect(&rect, page_width, page_height, is_dual_mode)
+                else {
+                    continue;
                 };
 
                 let tooltip = match &target {
@@ -340,10 +337,10 @@ impl PdfiumLoader {
                 media_clips,
                 inking: SlideInking::new(),
                 links: extracted_links,
+                content_hash: super::deck::PresentationDeck::text_fingerprint(page_text),
                 presenter_image: audience_img.clone(),
                 audience_image: audience_img,
-                notes_image: notes_img,
-                gpu_cache: Default::default(),
+                notes_image: notes_img.map(std::sync::Arc::new),
             });
         }
 
@@ -542,3 +539,50 @@ impl PdfiumLoader {
     }
 }
 
+
+/// Converts a PDF-space rectangle (origin bottom-left, points) into normalized `[x, y, w, h]`
+/// over the audience half of the page. Returns `None` when it lies on the notes half.
+fn normalize_page_rect(rect: &PdfRect, page_width: f32, page_height: f32, is_dual_mode: Option<bool>) -> Option<[f32; 4]> {
+    let rx = rect.left().value;
+    let ry_bottom = rect.bottom().value;
+    let rw = rect.width().value;
+    let rh = rect.height().value;
+    let ry_top = rect.top().value;
+
+    if let Some(is_vertical) = is_dual_mode {
+        if is_vertical {
+            let aud_w = page_width / 2.0;
+            if rx >= aud_w {
+                return None;
+            }
+            let nx = (rx / aud_w).clamp(0.0, 1.0);
+            let nw = (rw / aud_w).clamp(0.0, 1.0 - nx);
+            let ny = ((page_height - ry_top) / page_height).clamp(0.0, 1.0);
+            let nh = (rh / page_height).clamp(0.0, 1.0 - ny);
+            Some([nx, ny, nw, nh])
+        } else {
+            let aud_h = page_height / 2.0;
+            if ry_bottom < aud_h {
+                return None;
+            }
+            let nx = (rx / page_width).clamp(0.0, 1.0);
+            let nw = (rw / page_width).clamp(0.0, 1.0 - nx);
+            let ny = ((page_height - ry_top) / aud_h).clamp(0.0, 1.0);
+            let nh = (rh / aud_h).clamp(0.0, 1.0 - ny);
+            Some([nx, ny, nw, nh])
+        }
+    } else {
+        let nx = (rx / page_width).clamp(0.0, 1.0);
+        let nw = (rw / page_width).clamp(0.0, 1.0 - nx);
+        let ny = ((page_height - ry_top) / page_height).clamp(0.0, 1.0);
+        let nh = (rh / page_height).clamp(0.0, 1.0 - ny);
+        Some([nx, ny, nw, nh])
+    }
+}
+
+fn is_media_annotation(kind: PdfPageAnnotationType) -> bool {
+    matches!(
+        kind,
+        PdfPageAnnotationType::Movie | PdfPageAnnotationType::Screen | PdfPageAnnotationType::RichMedia
+    )
+}

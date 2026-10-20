@@ -105,10 +105,16 @@
     PowerBeamer seamlessly embeds and renders MP4 videos inside the presentation window:
   \end{block}
 
-  \vspace{0.1em}
+  % \vspace{0.1em}
   \centering
-  \movie[width=8.5cm,height=4.78cm,showcontrols=true,autostart=false]{
-    \colorbox{black}{\parbox{8.5cm}{\centering \textcolor{white}{\vspace{1.5cm} \textbf{[VIDEO] Click to Play Video Tutorial} \\ \small sample\_video.mp4 (720p 30fps) \vspace{1.5cm}}}}
+  \movie[
+    width=8.5cm,
+    height=4.78cm,
+    showcontrols=false,
+    autostart=false,
+    poster
+  ]{%
+    \includegraphics[width=8.5cm,height=4.78cm]{sample_first_frame.png}%
   }{sample_video.mp4}
 
   \note{

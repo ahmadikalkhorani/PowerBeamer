@@ -55,21 +55,10 @@
             "display_path": "sample_video.mp4",
             "is_resolved": true,
             "rect": [
-              0.28904182,
-              0.55649716,
-              0.45103228,
-              0.38323918
-            ]
-          },
-          {
-            "file_path": "test_deck/video.mp4",
-            "display_path": "video.mp4",
-            "is_resolved": false,
-            "rect": [
-              0.28904182,
-              0.55649716,
-              0.45103228,
-              0.35310733
+              0.28124976,
+              0.3254964,
+              0.43749943,
+              0.6140806
             ]
           }
         ]
@@ -144,19 +133,7 @@
         "audience_img": "beamer_notes_slide_aud_2.png",
         "presenter_img": "beamer_notes_slide_pres_2.png",
         "notes_img": "beamer_notes_slide_note_2.png",
-        "media_clips": [
-          {
-            "file_path": "/Users/sabazakeri/Documents/Projects/Presenter/test_deck/sample_audio.mp3",
-            "display_path": "sample_audio.mp3",
-            "is_resolved": true,
-            "rect": [
-              0.15,
-              0.26,
-              0.7,
-              0.5
-            ]
-          }
-        ]
+        "media_clips": []
       },
       {
         "page_index": 3,
@@ -178,10 +155,10 @@
             "display_path": "sample_audio.mp3",
             "is_resolved": true,
             "rect": [
-              0.15,
-              0.26,
-              0.7,
-              0.5
+              0.12843324,
+              0.4145415,
+              0.74313575,
+              0.16928636
             ]
           }
         ]
@@ -206,21 +183,10 @@
             "display_path": "sample_video.mp4",
             "is_resolved": true,
             "rect": [
-              0.24245633,
-              0.5998117,
-              0.5447327,
-              0.36629003
-            ]
-          },
-          {
-            "file_path": "test_deck/video.mp4",
-            "display_path": "video.mp4",
-            "is_resolved": false,
-            "rect": [
-              0.24245633,
-              0.23163842,
-              0.5447327,
-              0.6779661
+              0.2343747,
+              0.34780768,
+              0.5312506,
+              0.5311111
             ]
           }
         ]
@@ -239,19 +205,7 @@
         "audience_img": "beamer_notes_slide_aud_5.png",
         "presenter_img": "beamer_notes_slide_pres_5.png",
         "notes_img": "beamer_notes_slide_note_5.png",
-        "media_clips": [
-          {
-            "file_path": "/Users/sabazakeri/Documents/Projects/Presenter/test_deck/sample_audio.mp3",
-            "display_path": "sample_audio.mp3",
-            "is_resolved": true,
-            "rect": [
-              0.15,
-              0.48,
-              0.7,
-              0.5
-            ]
-          }
-        ]
+        "media_clips": []
       }
     ]
   },

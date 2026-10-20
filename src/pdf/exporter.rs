@@ -36,7 +36,7 @@ impl PdfExporter {
         let _ = std::fs::create_dir_all(&export_dir);
 
         for (idx, slide) in deck.slides.iter().enumerate() {
-            let mut composite = slide.audience_image.clone();
+            let mut composite = (*slide.audience_image).clone();
             let ink_img = InkingRasterizer::render_strokes(
                 composite.width(),
                 composite.height(),

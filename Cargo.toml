@@ -1,6 +1,6 @@
 [package]
 name = "powerbeamer"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 authors = ["Vahid Kalkhorani"]
 description = "High-performance LaTeX Beamer & PDF Presentation Studio"
@@ -28,3 +28,12 @@ tar = "0.4"
 
 [build-dependencies]
 slint-build = "1.18"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+# Optimize dependencies (image, pdfium bindings, slint) even in debug builds so
+# inking and PDF rendering stay usable while developing.
+[profile.dev.package."*"]
+opt-level = 2
