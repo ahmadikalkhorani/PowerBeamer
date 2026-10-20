@@ -2,6 +2,14 @@
 mod tests {
     use std::time::Duration;
 
+    /// Where tests write preview images: Cargo's per-target scratch dir, so it exists on
+    /// every machine (including CI runners).
+    fn artifact_dir() -> std::path::PathBuf {
+        let dir = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("artifacts");
+        std::fs::create_dir_all(&dir).expect("create test artifact dir");
+        dir
+    }
+
     #[test]
     fn test_beamer_dual_screen_aspect_ratio_detection() {
         // 8:3 ratio is 2.666 (Beamer pgfpages horizontal dual screen)
@@ -299,7 +307,7 @@ mod tests {
         assert_eq!(test_slide.inking.strokes.len(), 2);
 
         // 5. Save visual verification composite images
-        let artifact_dir = Path::new("/Users/sabazakeri/.gemini/antigravity-ide/brain/df976f94-f201-4369-a2c9-04a9a4088606");
+        let artifact_dir = artifact_dir();
         let mut composite = (*test_slide.audience_image).clone();
         let rendered_ink = InkingRasterizer::render_strokes(
             composite.width(),
@@ -742,7 +750,7 @@ mod tests {
         assert_eq!(pixel_revealed[3], 35, "Revealed tape must be translucent to show underlying text");
 
         // Save composite demonstration image to artifacts
-        let out_path = "/Users/sabazakeri/.gemini/antigravity-ide/brain/df976f94-f201-4369-a2c9-04a9a4088606/test_highlighter_tape_slide.png";
+        let out_path = artifact_dir().join("test_highlighter_tape_slide.png");
         let mut composite = image::RgbaImage::from_pixel(1280, 720, image::Rgba([248, 249, 250, 255]));
         // Tape stroke 1: opaque blackout mask
         let mut mask_tape = Stroke::new(3, [59, 130, 246, 255], 22.0, true);
@@ -886,7 +894,7 @@ mod tests {
         assert!(blue_glow_count > 100, "Laser line must render glowing blue pixels");
 
         // Save visual verification artifact
-        let artifact_dir = std::path::Path::new("/Users/sabazakeri/.gemini/antigravity-ide/brain/df976f94-f201-4369-a2c9-04a9a4088606");
+        let artifact_dir = artifact_dir();
         let mut sample_bg = image::RgbaImage::from_pixel(1280, 720, image::Rgba([24, 24, 27, 255]));
         let mut visual_trail = LaserTrail::new(1800, [255, 59, 48, 255], true);
         for i in 0..60 {
@@ -1014,7 +1022,7 @@ mod tests {
         assert_eq!(bridge_pixels, 0, "No bridge or connecting line must exist between disjoint shapes, found {}", bridge_pixels);
 
         // Save visual verification artifact
-        let artifact_dir = std::path::Path::new("/Users/sabazakeri/.gemini/antigravity-ide/brain/df976f94-f201-4369-a2c9-04a9a4088606");
+        let artifact_dir = artifact_dir();
         let mut sample_bg = image::RgbaImage::from_pixel(1000, 500, image::Rgba([24, 24, 27, 255]));
         image::imageops::overlay(&mut sample_bg, &img, 0, 0);
         let _ = sample_bg.save(artifact_dir.join("test_disjoint_laser_strokes.png"));
@@ -1106,7 +1114,7 @@ mod tests {
         assert!(magenta_pixels > 50, "Custom magenta highlighter must be rendered visibly on canvas");
 
         // Save visual verification artifact
-        let artifact_dir = std::path::Path::new("/Users/sabazakeri/.gemini/antigravity-ide/brain/df976f94-f201-4369-a2c9-04a9a4088606");
+        let artifact_dir = artifact_dir();
         let mut sample_bg = image::RgbaImage::from_pixel(800, 600, image::Rgba([24, 24, 27, 255]));
         image::imageops::overlay(&mut sample_bg, &img, 0, 0);
         let _ = sample_bg.save(artifact_dir.join("test_custom_color_slide.png"));
@@ -1258,7 +1266,7 @@ mod tests {
             }
         }
         assert!(line_pixels > 10, "Ruled paper must contain horizontal lines");
-        let artifact_dir = std::path::Path::new("/Users/sabazakeri/.gemini/antigravity-ide/brain/df976f94-f201-4369-a2c9-04a9a4088606");
+        let artifact_dir = artifact_dir();
         let _ = deck.slides[2].audience_image.save(artifact_dir.join("test_inserted_ruled_page.png"));
 
         // 3. Insert "grid" with Dark Slate background At the end (pos_mode 2)

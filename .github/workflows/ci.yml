@@ -27,6 +27,10 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
 
+      # The media tests decode test_deck/sample_video.mp4 with ffmpeg/ffprobe.
+      - name: Install ffmpeg
+        run: brew install ffmpeg
+
       - name: Build
         run: cargo build --all-targets
 
