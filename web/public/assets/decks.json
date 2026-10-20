@@ -121,7 +121,7 @@
         "overlay_step": 1,
         "overlay_total": 1,
         "title": "Slide 1",
-        "notes": "PRESENTER NOTES (Slide 1):\n• Welcome everyone to the presentation.\n• Introduce the objective: evaluating the next-generation Rust-based Beamer Presenter.\n• Point out that this presentation includes embedded audio and video media.\n• Press `L` on your keyboard to activate the laser pointer at any time.\n\nRobust Acoustic Speaker Tracking & Multimedia Presentation Systems Live Benchmark Deck with Beamer Notes, Video, and Audio\nVahid Kalkhorani1 Advanced Systems Group2\n1Department of Computer Science & Engineering, The Ohio State University\n2Acoustic Signal Processing & AI Laboratory\nOctober 19, 2026\n2026-10-19\nSpeaker Tracking & Beamer Presenter\nPRESENTER NOTES (Slide 1):\n• Welcome everyone to the presentation.\n• Introduce the objective: evaluating the next-generation Rust-based Beamer Presenter.\n• Point out that this presentation includes embedded audio and video media.\n• Press ‘L‘ on your keyboard to activate the laser pointer at any time.",
+        "notes": "PRESENTER NOTES (Slide 1):\n• Welcome to the interactive PowerBeamer tutorial deck!\n• Notice how this note displays in the presenter window without appearing on the audience screen.\n• Press L to activate the laser pointer and practice guiding attention.\n• Use the left/right arrow keys or spacebar to advance slides.\n\nPRESENTER NOTES (Slide 1):\n• Welcome to the interactive PowerBeamer tutorial deck!\n• Notice how this note displays in the presenter window without appearing on the audience\nscreen.\n• Press L to activate the laser pointer and practice guiding attention.\n• Use the left/right arrow keys or spacebar to advance slides.",
         "is_dual_screen": false,
         "aspect_ratio": 1.7787194,
         "has_notes_image": true,
@@ -137,7 +137,7 @@
         "overlay_step": 1,
         "overlay_total": 1,
         "title": "Slide 2",
-        "notes": "SPEAKER NOTES (Slide 2):\n• Walk the audience through the continuous-to-discrete transition matrix $\\mathbf{F$.\n• Highlight the non-linear hyperbolic nature of the TDoA measurements.\n• If needed, use the **Pen tool (P)** to sketch the microphone array baseline.\n• Or press `+` or `N` to open a blank whiteboard for step-by-step Taylor expansion.\n\nSPEAKER NOTES (Slide 2):\n• Walk the audience through the continuous-to-discrete transition matrix F.\n• Highlight the non-linear hyperbolic nature of the TDoA measurements.\n• If needed, use the **Pen tool (P)** to sketch the microphone array baseline.\n• Or press ‘+‘ or ‘N‘ to open a blank whiteboard for step-by-step Taylor expansion.",
+        "notes": "SPEAKER NOTES (Slide 2):\n• Switch to the Pen tool (P) and circle the regularization term $\\frac{\\lambda{2\\|\\theta\\|_2^2$.\n• Try changing ink colors using the color palette in the top bar.\n• Press Cmd+Z / Ctrl+Z to test multi-level undo.\n• Press N or + to spawn a blank whiteboard whenever you need extra writing space!\n\nSPEAKER NOTES (Slide 2):\n• Switch to the Pen tool (P) and circle the regularization term λ\n2\n∥θ∥\n2\n2\n.\n• Try changing ink colors using the color palette in the top bar.\n• Press Cmd+Z / Ctrl+Z to test multi-level undo.\n• Press N or + to spawn a blank whiteboard whenever you need extra writing space!",
         "is_dual_screen": false,
         "aspect_ratio": 1.7787194,
         "has_notes_image": true,
@@ -165,7 +165,7 @@
         "overlay_step": 1,
         "overlay_total": 1,
         "title": "Slide 3",
-        "notes": "SPEAKER NOTES (Slide 3):\n• Play the 440 Hz test tone to demonstrate native audio subsystem integration.\n• Confirm that audio plays through the main presentation audio output without lag.\n• Explain that speaker tracking algorithms initialize spectral baselines with this reference.",
+        "notes": "SPEAKER NOTES (Slide 3):\n• Click the audio box above to verify media playback through your speakers.\n• PowerBeamer extracts media clips defined with LaTeX \\texttt{\\textbackslash movie automatically.\n• Check the audio volume and mute controls in the presenter controls toolbar.\n\nSPEAKER NOTES (Slide 3):\n• Click the audio box above to verify media playback through your speakers.\n• PowerBeamer extracts media clips defined with LaTeX \\movie automatically.\n• Check the audio volume and mute controls in the presenter controls toolbar.",
         "is_dual_screen": false,
         "aspect_ratio": 1.7787194,
         "has_notes_image": true,
@@ -193,7 +193,7 @@
         "overlay_step": 1,
         "overlay_total": 1,
         "title": "Slide 4",
-        "notes": "SPEAKER NOTES (Slide 4):\n• Start the video playback.\n• Note the zero-tearing and 30fps smooth hardware-accelerated decode.\n• Highlight the test color patterns simulating camera sensor input.\n• Mention that the presenter scrub bar allows seeking to any timecode seamlessly.",
+        "notes": "SPEAKER NOTES (Slide 4):\n• Click on the video container to start playback.\n• Note the hardware-accelerated decode with zero frame dropping.\n• You can seek along the timeline scrub bar at the bottom.\n• Audience and presenter screens stay perfectly synchronized.",
         "is_dual_screen": false,
         "aspect_ratio": 1.7787194,
         "has_notes_image": true,
@@ -207,9 +207,9 @@
             "is_resolved": true,
             "rect": [
               0.24245633,
-              0.5913371,
+              0.5998117,
               0.5447327,
-              0.3747646
+              0.36629003
             ]
           },
           {
@@ -218,9 +218,9 @@
             "is_resolved": false,
             "rect": [
               0.24245633,
-              0.5913371,
+              0.23163842,
               0.5447327,
-              0.31826743
+              0.6779661
             ]
           }
         ]
@@ -232,7 +232,7 @@
         "overlay_step": 1,
         "overlay_total": 1,
         "title": "Slide 5",
-        "notes": "SPEAKER NOTES (Slide 5):\n• Open the floor for questions from committee or conference audience.\n• Show how easy it is to draw derivations live on the slides or on whiteboard pages.\n• Export the final annotated presentation to PDF when the session concludes.",
+        "notes": "SPEAKER NOTES (Slide 5):\n• Wrap up the tutorial walkthrough.\n• Press T to view the slide thumbnail grid and rearrange or navigate between slides.\n• Test saving the annotated PDF from the top action menu.",
         "is_dual_screen": false,
         "aspect_ratio": 1.7787194,
         "has_notes_image": true,

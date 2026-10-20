@@ -78,6 +78,29 @@ impl PdfLinkInfo {
     }
 }
 
+/// Lazily converted GPU-ready `slint::Image` handles (cheap to clone, shared pixel buffer).
+/// Cloning a slide yields an empty cache; call `reset()` whenever pixel data changes.
+#[derive(Default)]
+pub struct SlideGpuCache {
+    pub presenter: std::cell::RefCell<Option<slint::Image>>,
+    pub audience: std::cell::RefCell<Option<slint::Image>>,
+    pub notes: std::cell::RefCell<Option<slint::Image>>,
+}
+
+impl Clone for SlideGpuCache {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+impl SlideGpuCache {
+    pub fn reset(&self) {
+        *self.presenter.borrow_mut() = None;
+        *self.audience.borrow_mut() = None;
+        *self.notes.borrow_mut() = None;
+    }
+}
+
 #[derive(Clone)]
 pub struct Slide {
     pub page_index: usize,
@@ -98,6 +121,7 @@ pub struct Slide {
     pub audience_image: RgbaImage,
     pub presenter_image: RgbaImage,
     pub notes_image: Option<RgbaImage>,
+    pub gpu_cache: SlideGpuCache,
 }
 
 impl Slide {
@@ -392,6 +416,7 @@ impl PresentationDeck {
             audience_image: aud_img,
             presenter_image: pres_img,
             notes_image: None,
+            gpu_cache: Default::default(),
         };
 
         self.slides.insert(insert_idx, slide);
@@ -451,6 +476,7 @@ impl PresentationDeck {
             audience_image: s1_img.clone(),
             presenter_image: s1_img,
             notes_image: None,
+            gpu_cache: Default::default(),
         });
 
         // Slide 2: Equations & Formulas Slide
@@ -488,6 +514,7 @@ impl PresentationDeck {
             audience_image: s2_img.clone(),
             presenter_image: s2_img,
             notes_image: None,
+            gpu_cache: Default::default(),
         });
 
         // Slide 3: Beamer pgfpages Dual-Screen Simulated Slide
@@ -540,6 +567,7 @@ impl PresentationDeck {
             audience_image: s3_audience.clone(),
             presenter_image: s3_audience,
             notes_image: Some(s3_notes),
+            gpu_cache: Default::default(),
         });
 
         // Slide 4: Embedded Multimedia Demo
@@ -585,6 +613,7 @@ impl PresentationDeck {
             audience_image: s4_img.clone(),
             presenter_image: s4_img,
             notes_image: None,
+            gpu_cache: Default::default(),
         });
 
         self.toc = vec![

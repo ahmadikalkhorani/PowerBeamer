@@ -343,6 +343,7 @@ impl PdfiumLoader {
                 presenter_image: audience_img.clone(),
                 audience_image: audience_img,
                 notes_image: notes_img,
+                gpu_cache: Default::default(),
             });
         }
 

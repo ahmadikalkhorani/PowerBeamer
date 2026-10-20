@@ -1054,41 +1054,22 @@ export component PresenterWindow inherits Window {
                         }
                     }
 
-                    // Back button <
+                    // Open PDF / Choose Presentation button
                     Rectangle {
                         width: 28px;
                         height: 28px;
                         border-radius: 6px;
-                        background: touch-back.has-hover ? #2e2e34 : transparent;
-                        y: 10px;
-                        Text {
-                            text: "‹";
-                            color: #9ca3af;
-                            font-size: 20px;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                        }
-                        touch-back := TouchArea {
-                            clicked => { root.open_pdf(); }
-                        }
-                    }
-
-                    // Close button x
-                    Rectangle {
-                        width: 28px;
-                        height: 28px;
-                        border-radius: 6px;
-                        background: touch-close.has-hover ? #2e2e34 : transparent;
+                        background: touch-folder.has-hover ? #2e2e34 : transparent;
                         y: 10px;
                         Image {
-                            source: @image-url("icons/close.svg");
-                            width: 15px;
-                            height: 15px;
+                            source: @image-url("icons/folder_open.svg");
+                            width: 17px;
+                            height: 17px;
                             x: (parent.width - self.width) / 2;
                             y: (parent.height - self.height) / 2;
-                            colorize: #9ca3af;
+                            colorize: touch-folder.has-hover ? #ffffff : #9ca3af;
                         }
-                        touch-close := TouchArea {
+                        touch-folder := TouchArea {
                             clicked => { root.open_pdf(); }
                         }
                     }

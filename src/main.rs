@@ -26,6 +26,16 @@ pub fn rgba_to_slint_image(img: &RgbaImage) -> Image {
     Image::from_rgba8(buffer)
 }
 
+/// Returns the cached slint image, converting (and caching) it on first use.
+fn cached_slint_image(cell: &RefCell<Option<Image>>, img: &RgbaImage) -> Image {
+    if let Some(i) = cell.borrow().as_ref() {
+        return i.clone();
+    }
+    let i = rgba_to_slint_image(img);
+    *cell.borrow_mut() = Some(i.clone());
+    i
+}
+
 pub fn update_slide_thumbnails_model(deck: &PresentationDeck, presenter: &PresenterWindow) {
     let thumbs: Vec<SlideThumbnail> = deck.slides.iter().enumerate().map(|(i, slide)| {
         let aspect = slide.audience_image.height() as f32 / slide.audience_image.width() as f32;
@@ -169,7 +179,7 @@ impl AppState {
 
     fn new() -> Self {
         Self {
-            deck: PresentationDeck::new_demo_deck(RenderQuality::UltraVector),
+            deck: PresentationDeck::new_demo_deck(RenderQuality::Balanced),
             timer: PresentationTimer::new(45),
             active_stroke: None,
             laser_active: false,
@@ -298,13 +308,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Initializing Beamer LaTeX PDF Presenter...");
 
     let args: Vec<String> = std::env::args().collect();
-    let mut initial_deck = PresentationDeck::new_demo_deck(RenderQuality::UltraVector);
+    let mut initial_deck = PresentationDeck::new_demo_deck(RenderQuality::Balanced);
 
     if args.len() > 1 && !args[1].starts_with('-') {
         let path = std::path::Path::new(&args[1]);
         if path.exists() {
             println!("Loading presentation from CLI argument: {}", path.display());
-            match pdf::PdfiumLoader::load_deck_from_file(path, RenderQuality::UltraVector) {
+            match pdf::PdfiumLoader::load_deck_from_file(path, RenderQuality::Balanced) {
                 Ok((slides, toc)) => {
                     println!("Loaded {} slides and {} TOC entries from {}", slides.len(), toc.len(), path.display());
                     initial_deck.slides = slides;
@@ -351,6 +361,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let overlay_h: u32 = (1600.0f32 / aspect).round() as u32;
 
             let stroke_count = current_slide.inking.strokes.len();
+            if stroke_count == 0 && st.active_stroke.is_none() && st.laser_trail.is_none() {
+                // Nothing to draw: use a tiny transparent image instead of a full-size overlay.
+                st.cached_ink_overlay = None;
+                drop(st);
+                let empty = rgba_to_slint_image(&RgbaImage::new(1, 1));
+                if let Some(p) = presenter_handle.upgrade() {
+                    p.set_ink_overlay_image(empty.clone());
+                }
+                if let Some(a) = audience_handle.upgrade() {
+                    a.set_ink_image(empty);
+                }
+                return;
+            }
             let cache_valid = st.cached_ink_overlay.is_some()
                 && st.cached_ink_slide_idx == current_idx
                 && st.cached_ink_stroke_count == stroke_count;
@@ -421,8 +444,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let total = st.deck.total_slides();
             let current_slide = &st.deck.slides[current_idx];
 
-            let slint_current = rgba_to_slint_image(&current_slide.presenter_image);
-            let aud_slide = rgba_to_slint_image(&current_slide.audience_image);
+            let slint_current = cached_slint_image(&current_slide.gpu_cache.presenter, &current_slide.presenter_image);
+            let aud_slide = cached_slint_image(&current_slide.gpu_cache.audience, &current_slide.audience_image);
 
             let (disp_presenter, disp_audience) = if st.is_screen_swapped {
                 (aud_slide.clone(), slint_current.clone())
@@ -456,7 +479,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let toc_model_rc = Rc::new(slint::VecModel::from(toc_models));
 
             let next_img = if current_idx + 1 < total {
-                rgba_to_slint_image(&st.deck.slides[current_idx + 1].presenter_image)
+                let nx = &st.deck.slides[current_idx + 1];
+                cached_slint_image(&nx.gpu_cache.presenter, &nx.presenter_image)
             } else {
                 let (w, h) = (1600, 900);
                 let mut black_img = RgbaImage::new(w, h);
@@ -472,7 +496,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let is_dual_screen = current_slide.is_dual_screen;
             let slide_notes = current_slide.notes.clone();
             let (has_notes_img, slint_notes_img) = if let Some(notes_img) = &current_slide.notes_image {
-                (true, rgba_to_slint_image(notes_img))
+                (true, cached_slint_image(&current_slide.gpu_cache.notes, notes_img))
             } else {
                 (false, slint::Image::default())
             };
@@ -567,6 +591,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             drop(st);
             update_ink();
+
+            // Prewarm neighbouring slides' GPU images while idle so the next step is instant.
+            let state_pw = state.clone();
+            slint::Timer::single_shot(Duration::from_millis(30), move || {
+                let st = state_pw.borrow();
+                let idx = st.deck.current_index;
+                for i in [idx + 1, idx.wrapping_sub(1), idx + 2] {
+                    if let Some(s) = st.deck.slides.get(i) {
+                        cached_slint_image(&s.gpu_cache.presenter, &s.presenter_image);
+                        cached_slint_image(&s.gpu_cache.audience, &s.audience_image);
+                        if let Some(n) = &s.notes_image {
+                            cached_slint_image(&s.gpu_cache.notes, n);
+                        }
+                    }
+                }
+            });
         })
     };
 
@@ -901,6 +941,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let slide = &mut st.deck.slides[target_idx];
             slide.audience_image = image::imageops::rotate90(&slide.audience_image);
             slide.presenter_image = image::imageops::rotate90(&slide.presenter_image);
+            slide.gpu_cache.reset();
             slide.aspect_ratio = slide.audience_image.width() as f32 / slide.audience_image.height() as f32;
             drop(st);
             update();

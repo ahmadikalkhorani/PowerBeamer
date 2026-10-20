@@ -7,62 +7,61 @@
 \usepackage{amsmath,amssymb}
 \usepackage{tikz}
 
-% Enable notes
+% Enable notes (creates 5 slides + 5 notes pages = 10 pages total)
 \setbeameroption{show notes}
 
-\title[Speaker Tracking \& Beamer Presenter]{Robust Acoustic Speaker Tracking \\ \& Multimedia Presentation Systems}
-\subtitle{Live Benchmark Deck with Beamer Notes, Video, and Audio}
-\author[V. Kalkhorani et al.]{Vahid Kalkhorani\inst{1} \and Advanced Systems Group\inst{2}}
-\institute[OSU]{
-  \inst{1}Department of Computer Science \& Engineering, The Ohio State University \\
-  \inst{2}Acoustic Signal Processing \& AI Laboratory
-}
+\title[PowerBeamer Tutorial]{Mastering PowerBeamer \\ Interactive PDF Presentations}
+\subtitle{A Hands-On Guide to Tools, Inking, Shortcuts, and Media}
+\author[V. A. Kalkhorani]{Vahid A. Kalkhorani}
+\institute[Presenter]{PowerBeamer Project}
 \date{\today}
 
 \begin{document}
 
 % -----------------------------------------------------------------------------
-% SLIDE 1: Title
+% SLIDE 1: Title & Welcome
 % -----------------------------------------------------------------------------
 \begin{frame}
   \titlepage
   \note{
     \textbf{PRESENTER NOTES (Slide 1)}:
     \begin{itemize}
-      \item Welcome everyone to the presentation.
-      \item Introduce the objective: evaluating the next-generation Rust-based Beamer Presenter.
-      \item Point out that this presentation includes embedded audio and video media.
-      \item Press `L` on your keyboard to activate the laser pointer at any time.
+      \item Welcome to the interactive PowerBeamer tutorial deck!
+      \item Notice how this note displays in the presenter window without appearing on the audience screen.
+      \item Press \textbf{L} to activate the laser pointer and practice guiding attention.
+      \item Use the left/right arrow keys or spacebar to advance slides.
     \end{itemize}
   }
 \end{frame}
 
 % -----------------------------------------------------------------------------
-% SLIDE 2: Mathematical Formulation (Acoustic State-Space)
+% SLIDE 2: Inking & Drawing Tools
 % -----------------------------------------------------------------------------
-\begin{frame}{Mathematical Modeling: Acoustic State Space}
-  \begin{block}{State-Space Equation for Moving Acoustic Source}
-    Let $\mathbf{x}_k = [p_x, p_y, \dot{p}_x, \dot{p}_y]^T$ denote the state vector of the active speaker:
-    \begin{equation}
-      \mathbf{x}_{k} = \mathbf{F}\mathbf{x}_{k-1} + \mathbf{w}_k, \quad \mathbf{w}_k \sim \mathcal{N}(\mathbf{0}, \mathbf{Q})
-    \end{equation}
+\begin{frame}{Step 1: Annotation \& Inking Suite}
+  \begin{block}{Live Pen \& Highlighter Tools}
+    Annotate directly on slides with sub-10ms Catmull-Rom smoothed vector ink:
+    \begin{itemize}
+      \item \textbf{Pen (\texttt{P})}: Choose from Fountain, Ballpoint, or Brush tips.
+      \item \textbf{Highlighter (\texttt{H})}: Uses multiply blend mode to preserve sharp text.
+      \item \textbf{Eraser (\texttt{E})}: Fast stroke-collision eraser.
+      \item \textbf{Laser Pointer (\texttt{L})}: Glowing trail mirrored live to your audience.
+    \end{itemize}
   \end{block}
 
-  \begin{exampleblock}{Microphone Array Measurement Model (TDoA)}
-    For microphone pair $(i, j)$, the observed Time-Difference-of-Arrival (TDoA) is:
+  \begin{exampleblock}{Derivation Sandbox}
+    Practice drawing or writing formulas below:
     \begin{equation}
-      \tau_{ij}(\mathbf{x}_k) = \frac{\|\mathbf{p}_k - \mathbf{m}_i\| - \|\mathbf{p}_k - \mathbf{m}_j\|}{c} + v_{ij}
+      \mathcal{L}(\theta) = \sum_{i=1}^N \log p(y_i \mid x_i; \theta) - \frac{\lambda}{2}\|\theta\|_2^2
     \end{equation}
-    where $c = 343\text{ m/s}$ is the acoustic sound velocity in air.
   \end{exampleblock}
 
   \note{
     \textbf{SPEAKER NOTES (Slide 2)}:
     \begin{itemize}
-      \item Walk the audience through the continuous-to-discrete transition matrix $\mathbf{F}$.
-      \item Highlight the non-linear hyperbolic nature of the TDoA measurements.
-      \item If needed, use the **Pen tool (P)** to sketch the microphone array baseline.
-      \item Or press `+` or `N` to open a blank whiteboard for step-by-step Taylor expansion.
+      \item Switch to the \textbf{Pen tool (P)} and circle the regularization term $\frac{\lambda}{2}\|\theta\|_2^2$.
+      \item Try changing ink colors using the color palette in the top bar.
+      \item Press \textbf{Cmd+Z} / \textbf{Ctrl+Z} to test multi-level undo.
+      \item Press \textbf{N} or \textbf{+} to spawn a blank whiteboard whenever you need extra writing space!
     \end{itemize}
   }
 \end{frame}
@@ -70,30 +69,30 @@
 % -----------------------------------------------------------------------------
 % SLIDE 3: Audio Media Test
 % -----------------------------------------------------------------------------
-\begin{frame}{Acoustic Benchmark: Audio Stimulus}
-  \begin{alertblock}{Audio Playback Verification}
-    Click the trigger box below to play the calibrated acoustic reference tone:
+\begin{frame}{Step 2: Embedded Audio Support}
+  \begin{alertblock}{Interactive Audio Playback}
+    Click the trigger box below to play the embedded 440 Hz reference tone:
   \end{alertblock}
 
   \vspace{0.8em}
   \centering
   \movie[autostart=false,showcontrols=true]{
-    \colorbox{blue!15}{\parbox{0.75\textwidth}{\centering \Large \vspace{0.5em} \textbf{[AUDIO] Play 440 Hz Reference Audio} \\ \small (Embedded via \texttt{\textbackslash movie} from \texttt{multimedia.sty}) \vspace{0.5em}}}
+    \colorbox{blue!15}{\parbox{0.75\textwidth}{\centering \Large \vspace{0.5em} \textbf{[AUDIO] Click to Play 440 Hz Reference Audio} \\ \small (Embedded via \texttt{\textbackslash movie} from \texttt{multimedia.sty}) \vspace{0.5em}}}
   }{sample_audio.mp3}
 
   \vspace{1.2em}
   \begin{itemize}
-    \item Frequency: $f_0 = 440.0\text{ Hz}$ (Standard Concert Pitch $A_4$)
-    \item Sample Rate: $44.1\text{ kHz}$, 16-bit PCM Audio
-    \item Audio clip duration: 4.0 seconds
+    \item Native audio decoder with zero-latency playback.
+    \item Controls appear on the presenter HUD and seamlessly sync with the presentation.
+    \item Click anywhere on the box or press play to test your speaker output.
   \end{itemize}
 
   \note{
     \textbf{SPEAKER NOTES (Slide 3)}:
     \begin{itemize}
-      \item Play the 440 Hz test tone to demonstrate native audio subsystem integration.
-      \item Confirm that audio plays through the main presentation audio output without lag.
-      \item Explain that speaker tracking algorithms initialize spectral baselines with this reference.
+      \item Click the audio box above to verify media playback through your speakers.
+      \item PowerBeamer extracts media clips defined with LaTeX \texttt{\textbackslash movie} automatically.
+      \item Check the audio volume and mute controls in the presenter controls toolbar.
     \end{itemize}
   }
 \end{frame}
@@ -101,62 +100,62 @@
 % -----------------------------------------------------------------------------
 % SLIDE 4: Video Media Test
 % -----------------------------------------------------------------------------
-\begin{frame}{Target Tracking: Video Stream Verification}
-  \begin{block}{Live Video Tracking Simulation}
-    Real-time acoustic-visual sensor fusion evaluation:
+\begin{frame}{Step 3: Hardware-Accelerated Video Playback}
+  \begin{block}{Video Embedding in LaTeX Beamer}
+    PowerBeamer seamlessly embeds and renders MP4 videos inside the presentation window:
   \end{block}
 
-  \vspace{0.4em}
+  \vspace{0.1em}
   \centering
   \movie[width=8.5cm,height=4.78cm,showcontrols=true,autostart=false]{
-    \colorbox{black}{\parbox{8.5cm}{\centering \textcolor{white}{\vspace{1.5cm} \textbf{[VIDEO] Click to Play Video Simulation} \\ \small sample\_video.mp4 (720p 30fps) \vspace{1.5cm}}}}
+    \colorbox{black}{\parbox{8.5cm}{\centering \textcolor{white}{\vspace{1.5cm} \textbf{[VIDEO] Click to Play Video Tutorial} \\ \small sample\_video.mp4 (720p 30fps) \vspace{1.5cm}}}}
   }{sample_video.mp4}
 
   \note{
     \textbf{SPEAKER NOTES (Slide 4)}:
     \begin{itemize}
-      \item Start the video playback.
-      \item Note the zero-tearing and 30fps smooth hardware-accelerated decode.
-      \item Highlight the test color patterns simulating camera sensor input.
-      \item Mention that the presenter scrub bar allows seeking to any timecode seamlessly.
+      \item Click on the video container to start playback.
+      \item Note the hardware-accelerated decode with zero frame dropping.
+      \item You can seek along the timeline scrub bar at the bottom.
+      \item Audience and presenter screens stay perfectly synchronized.
     \end{itemize}
   }
 \end{frame}
 
 % -----------------------------------------------------------------------------
-% SLIDE 5: Conclusion & Inking Demo
+% SLIDE 5: Presentation Controls & Summary
 % -----------------------------------------------------------------------------
-\begin{frame}{Summary \& Live Inking Demonstration}
+\begin{frame}{Step 4: Essential Shortcuts \& Dual Display}
   \begin{columns}[T]
     \begin{column}{0.5\textwidth}
-      \textbf{Key System Capabilities:}
-      \begin{enumerate}
-        \item Sub-10ms inking latency with Catmull-Rom smoothing.
-        \item Instant Beamer note extraction.
-        \item Multi-window display detachment.
-        \item Vector-grade 600 DPI rendering quality.
-      \end{enumerate}
+      \textbf{Key Keyboard Shortcuts:}
+      \begin{itemize}
+        \item \textbf{F}: Toggle Fullscreen
+        \item \textbf{B} / \textbf{W}: Blackout / Whiteout screen
+        \item \textbf{A}: Detach Audience Projection window
+        \item \textbf{T}: Open Slide Thumbnails overview
+        \item \textbf{N} / \textbf{+}: Insert Whiteboard slide
+      \end{itemize}
     \end{column}
     \begin{column}{0.5\textwidth}
-      \textbf{Presenter Inking Verification:}
+      \textbf{Dual-Screen \& Saving:}
       \begin{itemize}
-        \item Use **Highlighter (H)** on these bullet points.
-        \item Use **Laser (L)** to trace slide elements.
-        \item Export annotations with **Save PDF**.
+        \item \textbf{Automatic Detection}: Detects \texttt{pgfpages} 32:9 dual-screen decks automatically.
+        \item \textbf{Save Presentation}: Export your complete annotated presentation with ink preserved to PDF.
       \end{itemize}
     \end{column}
   \end{columns}
 
   \vspace{1.5em}
   \centering
-  \textbf{Thank you for your attention! Questions?}
+  \textbf{You are ready to present with PowerBeamer!}
 
   \note{
     \textbf{SPEAKER NOTES (Slide 5)}:
     \begin{itemize}
-      \item Open the floor for questions from committee or conference audience.
-      \item Show how easy it is to draw derivations live on the slides or on whiteboard pages.
-      \item Export the final annotated presentation to PDF when the session concludes.
+      \item Wrap up the tutorial walkthrough.
+      \item Press \textbf{T} to view the slide thumbnail grid and rearrange or navigate between slides.
+      \item Test saving the annotated PDF from the top action menu.
     \end{itemize}
   }
 \end{frame}
