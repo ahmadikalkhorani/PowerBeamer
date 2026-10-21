@@ -74,7 +74,8 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                     p.set_media_rect_y(rect[1]);
                     p.set_media_rect_w(rect[2]);
                     p.set_media_rect_h(rect[3]);
-                    p.set_media_video_visible(true);
+                    // Audio has no frames; showing the video layer would cover the slide with black.
+                    p.set_media_video_visible(!is_audio);
                     p.set_media_playing(true);
                 }
                 if let Some(a) = audience_handle.upgrade() {
@@ -82,7 +83,7 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                     a.set_media_rect_y(rect[1]);
                     a.set_media_rect_w(rect[2]);
                     a.set_media_rect_h(rect[3]);
-                    a.set_media_video_visible(true);
+                    a.set_media_video_visible(!is_audio);
                 }
 
                 if is_audio {
