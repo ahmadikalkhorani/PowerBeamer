@@ -3,6 +3,17 @@
 # GitHub Actions release workflow (.github/workflows/release.yml).
 #
 # Usage: scripts/release.sh <patch|minor|major|X.Y.Z> [--dry-run]
+#
+# Version argument (current version shown as MAJOR.MINOR.PATCH, e.g. 0.1.2):
+#   patch   Backwards-compatible bug fixes only.          0.1.2 -> 0.1.3
+#   minor   New features, backwards compatible; resets    0.1.2 -> 0.2.0
+#           PATCH to 0.
+#   major   Breaking changes; resets MINOR and PATCH      0.1.2 -> 1.0.0
+#           to 0.
+#   X.Y.Z   Explicit version to release (e.g. 2.0.0),     0.1.2 -> 2.0.0
+#           used instead of computing a bump.
+#
+# --dry-run  Print the git/cargo commands instead of running them.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
