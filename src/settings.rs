@@ -1,4 +1,4 @@
-//! User preferences persisted between launches (tool options, colors, laser, sync, quality).
+//! User preferences persisted between launches (tool options, colors, laser, timer, sync, quality).
 //!
 //! Every field is optional so older or hand-edited files load fine: anything missing keeps
 //! the built-in default.
@@ -42,6 +42,14 @@ pub struct Settings {
     pub custom_palette: Option<Vec<[u8; 4]>>,
 
     pub media_speech_active: Option<bool>,
+
+    pub timer_countdown: Option<bool>,
+    pub timer_duration_min: Option<i32>,
+    pub timer_warn_min: Option<i32>,
+    pub timer_flash_overtime: Option<bool>,
+    pub timer_show_clock: Option<bool>,
+    pub timer_size: Option<i32>,
+    pub timer_start_on_advance: Option<bool>,
 }
 
 impl Settings {

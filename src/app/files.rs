@@ -42,6 +42,12 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                     st.on_deck_contents_changed();
                     Some(("Slides updated from the source PDF".to_string(), false))
                 }
+                (Ok((slides, toc)), DeckLoadKind::Requality) => {
+                    st.deck.merge_reloaded(slides, toc);
+                    st.on_deck_contents_changed();
+                    Some((format!("Slides re-rendered at {}", st.deck.quality.label()), false))
+                }
+                (Err(err), DeckLoadKind::Requality) => Some((format!("Couldn't re-render the slides: {}", err), true)),
                 (Err(err), DeckLoadKind::Open) => Some((format!("Couldn't open {}: {}", job.path.display(), err), true)),
                 // Keep showing the last good version (e.g. LaTeX wrote a broken PDF); the next
                 // successful rebuild changes the file stamp and triggers another attempt.

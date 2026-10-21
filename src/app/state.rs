@@ -130,6 +130,17 @@ pub(crate) struct AppState {
     pub(crate) color_slot_5: [u8; 4],
     pub(crate) custom_palette: Vec<[u8; 4]>,
 
+    // Presentation timer options (see the timer menu)
+    pub(crate) timer_countdown: bool,
+    pub(crate) timer_duration_min: i32,
+    pub(crate) timer_warn_min: i32,
+    pub(crate) timer_flash_overtime: bool,
+    pub(crate) timer_show_clock: bool,
+    pub(crate) timer_size: i32, // 0: S, 1: M, 2: L
+    pub(crate) timer_start_on_advance: bool,
+    // Slide the timer is waiting to leave before it starts (start-on-first-advance)
+    pub(crate) timer_armed_at_slide: Option<usize>,
+
     // Slide Media Player Toolbar state
     pub(crate) media_playing: bool,
     pub(crate) media_progress: f32,
@@ -203,6 +214,13 @@ impl AppState {
             color_slots: Some([self.color_slot_1, self.color_slot_2, self.color_slot_3, self.color_slot_4, self.color_slot_5]),
             custom_palette: Some(self.custom_palette.clone()),
             media_speech_active: Some(self.media_speech_active),
+            timer_countdown: Some(self.timer_countdown),
+            timer_duration_min: Some(self.timer_duration_min),
+            timer_warn_min: Some(self.timer_warn_min),
+            timer_flash_overtime: Some(self.timer_flash_overtime),
+            timer_show_clock: Some(self.timer_show_clock),
+            timer_size: Some(self.timer_size),
+            timer_start_on_advance: Some(self.timer_start_on_advance),
         }
     }
 
@@ -216,8 +234,14 @@ impl AppState {
             highlighter_straight_lines, highlighter_size_mm, eraser_size_index, eraser_radius,
             erase_whole_line, erase_highlight_only, auto_select_previous_tool, erase_shapes,
             erase_tapes, laser_color_index, laser_color_rgba, laser_draw_lines,
-            laser_fade_duration_s, active_color_slot, custom_palette, media_speech_active
+            laser_fade_duration_s, active_color_slot, custom_palette, media_speech_active,
+            timer_countdown, timer_duration_min, timer_warn_min, timer_flash_overtime,
+            timer_show_clock, timer_size, timer_start_on_advance
         );
+        self.timer.set_target_minutes(self.timer_duration_min.max(1) as u64);
+        if self.timer_start_on_advance {
+            self.arm_timer();
+        }
         if let Some(q) = &s.render_quality {
             self.deck.quality = RenderQuality::from_label(q);
         }
@@ -274,6 +298,20 @@ impl AppState {
         let palette: Vec<slint::Color> = self.custom_palette.iter().map(|c| to_slint_color(*c)).collect();
         p.set_custom_palette(Rc::new(slint::VecModel::from(palette)).into());
         p.set_media_speech_active(self.media_speech_active);
+        p.set_timer_countdown(self.timer_countdown);
+        p.set_timer_duration_min(self.timer_duration_min);
+        p.set_timer_warn_min(self.timer_warn_min);
+        p.set_timer_flash_overtime(self.timer_flash_overtime);
+        p.set_timer_show_clock(self.timer_show_clock);
+        p.set_timer_size(self.timer_size);
+        p.set_timer_start_on_advance(self.timer_start_on_advance);
+    }
+
+    /// Stops the timer at zero until the presenter leaves the current slide.
+    pub(crate) fn arm_timer(&mut self) {
+        self.timer.pause();
+        self.timer.reset();
+        self.timer_armed_at_slide = Some(self.deck.current_index);
     }
 }
 
@@ -283,6 +321,8 @@ pub(crate) enum DeckLoadKind {
     Open,
     /// Merge a rebuilt source PDF into the current deck, keeping ink and inserted pages.
     Sync,
+    /// Re-render the same PDF at a new quality, merged like `Sync`.
+    Requality,
 }
 
 pub(crate) type DeckLoadResult = Result<(Vec<Slide>, Vec<TocEntry>), String>;
@@ -383,6 +423,15 @@ impl AppState {
             stroke_width: 3.5,
             current_tool: ActiveTool::Laser,
             stroke_counter: 0,
+
+            timer_countdown: false,
+            timer_duration_min: 45,
+            timer_warn_min: 5,
+            timer_flash_overtime: true,
+            timer_show_clock: false,
+            timer_size: 0,
+            timer_start_on_advance: false,
+            timer_armed_at_slide: None,
 
             // Media Player defaults
             media_playing: false,

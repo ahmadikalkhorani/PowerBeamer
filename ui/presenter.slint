@@ -465,6 +465,62 @@ component PresenterToggle inherits Rectangle {
     }
 }
 
+// Segmented option (e.g. Stopwatch | Countdown) used in the timer menu
+component TimerSegment inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected;
+    callback clicked();
+    height: 28px;
+    border-radius: 6px;
+    background: root.selected ? #007aff : (seg_touch.has-hover ? #2e2e34 : #232328);
+    Text {
+        text: root.text;
+        color: root.selected ? #ffffff : #d1d5db;
+        font-size: 12px;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    seg_touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// − value + stepper used in the timer menu
+component TimerStepper inherits Rectangle {
+    in property <string> text;
+    callback decrement();
+    callback increment();
+    height: 28px;
+    border-radius: 6px;
+    background: #232328;
+    HorizontalLayout {
+        Rectangle {
+            width: 30px;
+            background: dec_touch.has-hover ? #2e2e34 : transparent;
+            border-radius: 6px;
+            Text { text: "−"; color: #f4f4f5; font-size: 15px; horizontal-alignment: center; vertical-alignment: center; }
+            dec_touch := TouchArea { mouse-cursor: pointer; clicked => { root.decrement(); } }
+        }
+        Text {
+            text: root.text;
+            color: #f4f4f5;
+            font-size: 12px;
+            font-weight: 600;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+        Rectangle {
+            width: 30px;
+            background: inc_touch.has-hover ? #2e2e34 : transparent;
+            border-radius: 6px;
+            Text { text: "+"; color: #f4f4f5; font-size: 15px; horizontal-alignment: center; vertical-alignment: center; }
+            inc_touch := TouchArea { mouse-cursor: pointer; clicked => { root.increment(); } }
+        }
+    }
+}
+
 component ToolSizeCard inherits Rectangle {
     in-out property <string> label: "";
     in-out property <length> dot_diameter: 8px;
@@ -529,6 +585,23 @@ export component PresenterWindow inherits Window {
     in-out property <string> remaining_time: "45:00";
     in-out property <string> wall_clock: "10:45 AM";
     in-out property <bool> timer_running: true;
+    // Timer display & options (Rust owns the clock; the menu edits these and calls timer_options_changed)
+    in-out property <string> timer_text: "00:00";
+    in-out property <int> timer_status: 0; // 0: normal, 1: warning, 2: overtime
+    in-out property <bool> timer_flash_dim: false;
+    in-out property <bool> timer_armed: false;
+    in-out property <bool> timer_countdown: false;
+    in-out property <int> timer_duration_min: 45;
+    in-out property <int> timer_warn_min: 5;
+    in-out property <bool> timer_flash_overtime: true;
+    in-out property <bool> timer_show_clock: false;
+    in-out property <int> timer_size: 0; // 0: S, 1: M, 2: L
+    in-out property <bool> timer_start_on_advance: false;
+    in-out property <bool> show_timer_menu: false;
+    in-out property <bool> show_quality_menu: false;
+    property <length> quality_menu_anchor_x;
+    property <length> quality_menu_anchor_y;
+    property <color> timer_color: root.timer_status == 2 ? #ef4444 : (root.timer_status == 1 ? #f59e0b : #10b981);
     in-out property <string> notes_text: "LaTeX Beamer Notes:\n• Key takeaway: asymptotic complexity is O(N log N)\n• Emphasize theorem 3.2 on next transition";
     in-out property <image> current_slide_image;
     in-out property <image> next_slide_image;
@@ -690,6 +763,7 @@ export component PresenterWindow inherits Window {
     callback redo();
     callback toggle_timer();
     callback reset_timer();
+    callback timer_options_changed();
     callback toggle_audience_window();
     callback toggle_notes_window();
     callback update_slide_notes(int, string);
@@ -814,6 +888,12 @@ export component PresenterWindow inherits Window {
                     accept
                 } else if (root.show_insert_page_modal) {
                     root.show_insert_page_modal = false;
+                    accept
+                } else if (root.show_timer_menu) {
+                    root.show_timer_menu = false;
+                    accept
+                } else if (root.show_quality_menu) {
+                    root.show_quality_menu = false;
                     accept
                 } else if (root.show_laser_popover) {
                     root.show_laser_popover = false;
@@ -1143,28 +1223,6 @@ export component PresenterWindow inherits Window {
                             clicked => { root.open_pdf(); }
                         }
                     }
-
-                    // Document Title pill (e.g. 2202-SRP-DNN)
-                    Rectangle {
-                        height: 28px;
-                        background: #141416;
-                        border-radius: 6px;
-                        border-width: 1px;
-                        border-color: #2e2e34;
-                        y: 10px;
-
-                        HorizontalLayout {
-                            padding-left: 14px;
-                            padding-right: 14px;
-                            Text {
-                                text: root.document_title;
-                                color: #e5e7eb;
-                                font-size: 13px;
-                                font-weight: 600;
-                                vertical-alignment: center;
-                            }
-                        }
-                    }
                 }
 
                 // Center: Slide Counter & Presentation Timers
@@ -1172,7 +1230,6 @@ export component PresenterWindow inherits Window {
                     spacing: 10px;
                     alignment: center;
 
-                    // Slide Counter Pill
                     // Slide Counter Pill with Interactive Previous / Next Arrows
                     Rectangle {
                         height: 28px;
@@ -1247,97 +1304,66 @@ export component PresenterWindow inherits Window {
                         }
                     }
 
-                    // Beamer Logical Frame & Overlay Indicator Pill (e.g. Frame 2/5 • Step 1/3)
-                    if root.frame_info_text != "": Rectangle {
-                        height: 28px;
-                        background: #141824;
-                        border-radius: 6px;
-                        border-width: 1px;
-                        border-color: #3b82f6;
-                        y: 10px;
 
-                        HorizontalLayout {
-                            padding-left: 6px;
-                            padding-right: 6px;
-                            spacing: 5px;
-                            alignment: center;
-
-                            // Previous Frame Arrow (⏮)
-                            Rectangle {
-                                width: 18px;
-                                height: 18px;
-                                border-radius: 4px;
-                                background: touch_prev_frame.has-hover ? #2e2e34 : transparent;
-                                y: 5px;
-
-                                Text {
-                                    text: "⏮";
-                                    color: #60a5fa;
-                                    font-size: 10px;
-                                    horizontal-alignment: center;
-                                    vertical-alignment: center;
-                                }
-
-                                touch_prev_frame := TouchArea {
-                                    mouse-cursor: pointer;
-                                    clicked => { root.prev_frame(); }
-                                }
-                            }
-
-                            Text {
-                                text: root.frame_info_text;
-                                color: #93c5fd;
-                                font-size: 11px;
-                                font-weight: 700;
-                                vertical-alignment: center;
-                            }
-
-                            // Next Frame Arrow (⏭)
-                            Rectangle {
-                                width: 18px;
-                                height: 18px;
-                                border-radius: 4px;
-                                background: touch_next_frame.has-hover ? #2e2e34 : transparent;
-                                y: 5px;
-
-                                Text {
-                                    text: "⏭";
-                                    color: #60a5fa;
-                                    font-size: 10px;
-                                    horizontal-alignment: center;
-                                    vertical-alignment: center;
-                                }
-
-                                touch_next_frame := TouchArea {
-                                    mouse-cursor: pointer;
-                                    clicked => { root.next_frame(); }
-                                }
-                            }
-                        }
-                    }
-
-                    // Timer Pill
+                    // Timer Pill: click pauses / resumes, right-click opens the timer menu
                     Rectangle {
-                        height: 28px;
-                        background: #141416;
+                        height: root.timer_size == 2 ? 36px : (root.timer_size == 1 ? 32px : 28px);
+                        background: timer_pill_touch.has-hover ? #1c1c20 : #141416;
                         border-radius: 6px;
                         border-width: 1px;
-                        border-color: #2e2e34;
-                        y: 10px;
+                        border-color: root.show_timer_menu ? #3b82f6 : (root.timer_status == 0 ? #2e2e34 : root.timer_color);
+                        y: (48px - self.height) / 2;
 
                         HorizontalLayout {
                             padding-left: 10px;
                             padding-right: 10px;
+                            padding-top: 6px;
+                            padding-bottom: 6px;
                             spacing: 6px;
+                            Image {
+                                source: root.timer_armed ? @image-url("icons/hourglass.svg") : (root.timer_running ? @image-url("icons/stopwatch.svg") : @image-url("icons/pause.svg"));
+                                width: root.timer_size == 2 ? 18px : (root.timer_size == 1 ? 15px : 13px);
+                                height: self.width;
+                                y: (parent.height - self.height) / 2;
+                                colorize: root.timer_color;
+                                opacity: root.timer_flash_dim ? 0.3 : (root.timer_running || root.timer_armed ? 1.0 : 0.6);
+                            }
                             Text {
-                                text: "⏱ " + root.elapsed_time;
-                                color: #10b981;
-                                font-size: 12px;
+                                text: root.timer_text;
+                                color: root.timer_color;
+                                opacity: root.timer_flash_dim ? 0.3 : (root.timer_running || root.timer_armed ? 1.0 : 0.6);
+                                font-size: root.timer_size == 2 ? 19px : (root.timer_size == 1 ? 15px : 12px);
                                 font-weight: 700;
                                 vertical-alignment: center;
                             }
+                            if root.timer_show_clock: Rectangle {
+                                width: 1px;
+                                background: #3a3a42;
+                            }
+                            if root.timer_show_clock: Image {
+                                source: @image-url("icons/clock.svg");
+                                width: root.timer_size == 2 ? 17px : (root.timer_size == 1 ? 14px : 12px);
+                                height: self.width;
+                                y: (parent.height - self.height) / 2;
+                                colorize: #9ca3af;
+                            }
+                            if root.timer_show_clock: Text {
+                                text: root.wall_clock;
+                                color: #d1d5db;
+                                font-size: root.timer_size == 2 ? 17px : (root.timer_size == 1 ? 14px : 12px);
+                                font-weight: 600;
+                                vertical-alignment: center;
+                            }
                         }
-                        TouchArea { clicked => { root.toggle_timer(); } }
+                        timer_pill_touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { root.toggle_timer(); }
+                            pointer-event(event) => {
+                                if (event.button == PointerEventButton.right && event.kind == PointerEventKind.up) {
+                                    root.show_timer_menu = !root.show_timer_menu;
+                                }
+                            }
+                        }
                     }
 
                     // Recording Indicator Pill
@@ -1437,99 +1463,25 @@ export component PresenterWindow inherits Window {
                         }
                     }
 
-                    // Render Quality Indicator Pill (Interactive Ultra / Balanced / Eco)
-                    Rectangle {
-                        height: 28px;
-                        border-radius: 6px;
-                        background: touch_qual.has-hover ? #1e293b : #181c24;
-                        border-width: 1.5px;
-                        border-color: #2563eb;
-                        y: 10px;
-                        z: touch_qual.has-hover ? 100 : 0;
-
-                        HorizontalLayout {
-                            padding-left: 10px;
-                            padding-right: 10px;
-                            Text {
-                                text: root.render_quality;
-                                color: #60a5fa;
-                                font-size: 11px;
-                                font-weight: 600;
-                                vertical-alignment: center;
-                            }
-                        }
-                        touch_qual := TouchArea {
-                            mouse-cursor: pointer;
-                            clicked => {
-                                if (root.render_quality == "Ultra Vector (600 DPI)") {
-                                    root.render_quality = "Balanced (300 DPI)";
-                                } else if (root.render_quality == "Balanced (300 DPI)") {
-                                    root.render_quality = "Eco Battery (150 DPI)";
-                                } else {
-                                    root.render_quality = "Ultra Vector (600 DPI)";
-                                }
-                                root.quality_changed(root.render_quality);
-                            }
+                    // Render Quality Button: opens a menu to pick the slide rendering quality
+                    PresenterHeaderBtn {
+                        is_active: root.show_quality_menu;
+                        tooltip_title: root.show_quality_menu ? "" : "Slide Quality";
+                        tooltip_hint: root.deck_loading ? "Rendering…" : root.render_quality;
+                        clicked => {
+                            // Remember where the button is so the root-level menu can sit under it
+                            root.quality_menu_anchor_x = self.absolute-position.x + self.width;
+                            root.quality_menu_anchor_y = self.absolute-position.y + self.height;
+                            root.show_quality_menu = !root.show_quality_menu;
                         }
 
-                        if touch_qual.has-hover: Rectangle {
-                            width: qual_tooltip_layout.preferred-width;
-                            height: qual_tooltip_layout.preferred-height;
+                        Image {
+                            source: @image-url("icons/quality.svg");
+                            width: 18px;
+                            height: 18px;
                             x: (parent.width - self.width) / 2;
-                            y: 34px;
-                            border-radius: 6px;
-                            background: #141416f5;
-                            border-width: 1px;
-                            border-color: #3b82f670;
-                            drop-shadow-blur: 10px;
-                            drop-shadow-color: #000000cc;
-
-                            qual_tooltip_layout := VerticalLayout {
-                                padding-left: 10px;
-                                padding-right: 10px;
-                                padding-top: 5px;
-                                padding-bottom: 5px;
-                                spacing: 3px;
-                                alignment: center;
-
-                                HorizontalLayout {
-                                    spacing: 6px;
-                                    alignment: center;
-                                    Text {
-                                        text: "PDF Rendering Quality";
-                                        font-size: 11px;
-                                        font-weight: 700;
-                                        color: #ffffff;
-                                        vertical-alignment: center;
-                                    }
-                                    Rectangle {
-                                        height: 16px;
-                                        border-radius: 3px;
-                                        background: #27272a;
-                                        border-width: 1px;
-                                        border-color: #52525b;
-                                        y: (parent.height - self.height) / 2;
-                                        HorizontalLayout {
-                                            padding-left: 4px;
-                                            padding-right: 4px;
-                                            Text {
-                                                text: "Click to cycle";
-                                                font-size: 9px;
-                                                font-weight: 800;
-                                                color: #60a5fa;
-                                                vertical-alignment: center;
-                                            }
-                                        }
-                                    }
-                                }
-                                Text {
-                                    text: "Ultra Vector (600 DPI) • Balanced (300 DPI) • Eco (150 DPI)";
-                                    font-size: 9px;
-                                    color: #9ca3af;
-                                    horizontal-alignment: center;
-                                    vertical-alignment: center;
-                                }
-                            }
+                            y: (parent.height - self.height) / 2;
+                            colorize: root.deck_loading ? #fbbf24 : #ffffff;
                         }
                     }
 
@@ -5851,6 +5803,222 @@ export component PresenterWindow inherits Window {
                         TouchArea {
                             clicked => { root.toggle_notes_window(); }
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    // --- SLIDE QUALITY MENU (opened from the quality button in the title bar) ---
+    if root.show_quality_menu: Rectangle {
+        width: 100%;
+        height: 100%;
+
+        // Click outside closes the menu
+        TouchArea { clicked => { root.show_quality_menu = false; } }
+
+        Rectangle {
+            width: 240px;
+            height: quality_menu_layout.preferred-height;
+            // Right-aligned under the button, kept inside the window
+            x: max(8px, min(parent.width - self.width - 8px, root.quality_menu_anchor_x - self.width));
+            y: root.quality_menu_anchor_y + 6px;
+            background: #1c1c1f;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: #2c2c34;
+            drop-shadow-blur: 24px;
+            drop-shadow-color: #000000dd;
+
+            TouchArea { }
+
+            quality_menu_layout := VerticalLayout {
+                padding: 8px;
+                spacing: 2px;
+
+                Text {
+                    text: "Slide Quality";
+                    font-size: 12px;
+                    font-weight: 700;
+                    color: #9ca3af;
+                    horizontal-alignment: left;
+                    padding: 0px;
+                }
+
+                for option in [
+                    { label: "Ultra Vector (600 DPI)", title: "Ultra", hint: "Sharpest on 4K / Retina, most memory" },
+                    { label: "Balanced (300 DPI)", title: "Balanced", hint: "Sharp on most displays" },
+                    { label: "Eco Battery (150 DPI)", title: "Eco", hint: "Fastest, least memory" },
+                ]: Rectangle {
+                    height: 44px;
+                    border-radius: 8px;
+                    background: option_touch.has-hover ? #2a2a30 : transparent;
+
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        spacing: 10px;
+                        VerticalLayout {
+                            alignment: center;
+                            spacing: 1px;
+                            Text { text: option.title; font-size: 13px; font-weight: 600; color: #f4f4f5; }
+                            Text { text: option.hint; font-size: 10px; color: #9ca3af; }
+                        }
+                        Text {
+                            text: root.render_quality == option.label ? "✓" : "";
+                            font-size: 14px;
+                            font-weight: 700;
+                            color: #60a5fa;
+                            horizontal-alignment: right;
+                            vertical-alignment: center;
+                        }
+                    }
+                    option_touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.show_quality_menu = false;
+                            if (root.render_quality != option.label) {
+                                root.render_quality = option.label;
+                                root.quality_changed(option.label);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // --- TIMER MENU (opened from the timer pill in the title bar) ---
+    if root.show_timer_menu: Rectangle {
+        width: 100%;
+        height: 100%;
+
+        // Click outside closes the menu
+        TouchArea { clicked => { root.show_timer_menu = false; } }
+
+        Rectangle {
+            width: 300px;
+            height: timer_menu_layout.preferred-height;
+            x: (parent.width - self.width) / 2;
+            y: 52px;
+            background: #1c1c1f;
+            border-radius: 14px;
+            border-width: 1px;
+            border-color: #2c2c34;
+            drop-shadow-blur: 24px;
+            drop-shadow-color: #000000dd;
+
+            // Consume clicks inside the menu
+            TouchArea { }
+
+            timer_menu_layout := VerticalLayout {
+                padding: 16px;
+                spacing: 12px;
+
+                Text {
+                    text: "Timer";
+                    font-size: 15px;
+                    font-weight: 700;
+                    color: #ffffff;
+                    horizontal-alignment: center;
+                }
+
+                // Big readout + run controls
+                Text {
+                    text: root.timer_text;
+                    font-size: 30px;
+                    font-weight: 700;
+                    color: root.timer_color;
+                    horizontal-alignment: center;
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    TimerSegment {
+                        text: root.timer_armed ? "Start now" : (root.timer_running ? "Pause" : "Resume");
+                        selected: false;
+                        clicked => { root.toggle_timer(); root.timer_running = !root.timer_running; root.timer_armed = false; }
+                    }
+                    TimerSegment {
+                        text: "Reset";
+                        selected: false;
+                        clicked => { root.reset_timer(); }
+                    }
+                }
+
+                // Mode
+                Text { text: "Mode"; font-size: 12px; font-weight: 600; color: #9ca3af; }
+                HorizontalLayout {
+                    spacing: 6px;
+                    TimerSegment {
+                        text: "Stopwatch";
+                        selected: !root.timer_countdown;
+                        clicked => { root.timer_countdown = false; root.timer_options_changed(); }
+                    }
+                    TimerSegment {
+                        text: "Countdown";
+                        selected: root.timer_countdown;
+                        clicked => { root.timer_countdown = true; root.timer_options_changed(); }
+                    }
+                }
+
+                // Target duration & warning
+                HorizontalLayout {
+                    spacing: 10px;
+                    VerticalLayout {
+                        spacing: 6px;
+                        Text { text: "Talk length"; font-size: 12px; font-weight: 600; color: #9ca3af; }
+                        TimerStepper {
+                            text: root.timer_duration_min + " min";
+                            decrement => { root.timer_duration_min = max(1, root.timer_duration_min - (root.timer_duration_min > 10 ? 5 : 1)); root.timer_options_changed(); }
+                            increment => { root.timer_duration_min = min(600, root.timer_duration_min + (root.timer_duration_min >= 10 ? 5 : 1)); root.timer_options_changed(); }
+                        }
+                    }
+                    VerticalLayout {
+                        spacing: 6px;
+                        Text { text: "Warn when left"; font-size: 12px; font-weight: 600; color: #9ca3af; }
+                        TimerStepper {
+                            text: root.timer_warn_min == 0 ? "Off" : (root.timer_warn_min + " min");
+                            decrement => { root.timer_warn_min = max(0, root.timer_warn_min - 1); root.timer_options_changed(); }
+                            increment => { root.timer_warn_min = min(120, root.timer_warn_min + 1); root.timer_options_changed(); }
+                        }
+                    }
+                }
+                Text {
+                    text: "Turns amber when the warning time remains and red once the talk length is reached.";
+                    font-size: 11px;
+                    color: #71717a;
+                    wrap: word-wrap;
+                }
+
+                // Size
+                Text { text: "Size"; font-size: 12px; font-weight: 600; color: #9ca3af; }
+                HorizontalLayout {
+                    spacing: 6px;
+                    TimerSegment { text: "S"; selected: root.timer_size == 0; clicked => { root.timer_size = 0; root.timer_options_changed(); } }
+                    TimerSegment { text: "M"; selected: root.timer_size == 1; clicked => { root.timer_size = 1; root.timer_options_changed(); } }
+                    TimerSegment { text: "L"; selected: root.timer_size == 2; clicked => { root.timer_size = 2; root.timer_options_changed(); } }
+                }
+
+                // Toggles
+                HorizontalLayout {
+                    Text { text: "Flash when over time"; font-size: 13px; color: #e5e7eb; vertical-alignment: center; }
+                    PresenterToggle {
+                        checked: root.timer_flash_overtime;
+                        toggled(v) => { root.timer_flash_overtime = v; root.timer_options_changed(); }
+                    }
+                }
+                HorizontalLayout {
+                    Text { text: "Show clock"; font-size: 13px; color: #e5e7eb; vertical-alignment: center; }
+                    PresenterToggle {
+                        checked: root.timer_show_clock;
+                        toggled(v) => { root.timer_show_clock = v; root.timer_options_changed(); }
+                    }
+                }
+                HorizontalLayout {
+                    Text { text: "Start on first slide change"; font-size: 13px; color: #e5e7eb; vertical-alignment: center; }
+                    PresenterToggle {
+                        checked: root.timer_start_on_advance;
+                        toggled(v) => { root.timer_start_on_advance = v; root.timer_options_changed(); }
                     }
                 }
             }
