@@ -137,6 +137,8 @@ pub(crate) struct AppState {
     pub(crate) media_current_time_secs: f32,
     pub(crate) media_speed: f32,
     pub(crate) media_speech_active: bool,
+    // Clip the toolbar drives on a slide with several clips, as (slide index, clip index)
+    pub(crate) active_media_clip: (usize, usize),
 
     // In-flight gesture & hold detection
     pub(crate) pointer_is_down: bool,
@@ -335,6 +337,20 @@ impl AppState {
 }
 
 impl AppState {
+    /// Index of the clip the media toolbar drives on the current slide (0 after a slide change).
+    pub(crate) fn active_clip_index(&self) -> usize {
+        let (slide, idx) = self.active_media_clip;
+        if slide == self.deck.current_index && idx < self.deck.current_slide().media_clips.len() {
+            idx
+        } else {
+            0
+        }
+    }
+
+    pub(crate) fn active_clip(&self) -> Option<pdf::MediaClip> {
+        self.deck.current_slide().media_clips.get(self.active_clip_index()).cloned()
+    }
+
     pub(crate) fn format_media_time(&self) -> String {
         let cur = self.media_current_time_secs as u32;
         let tot = self.media_duration_secs as u32;
@@ -365,7 +381,7 @@ impl AppState {
             laser_active: false,
             active_color: [254, 240, 78, 255], // Yellow #fef04e
             stroke_width: 3.5,
-            current_tool: ActiveTool::Pen,
+            current_tool: ActiveTool::Laser,
             stroke_counter: 0,
 
             // Media Player defaults
@@ -375,6 +391,7 @@ impl AppState {
             media_current_time_secs: 0.0,
             media_speed: 1.0,
             media_speech_active: true,
+            active_media_clip: (0, 0),
 
             blank_mode: 0,
             is_screen_swapped: false,

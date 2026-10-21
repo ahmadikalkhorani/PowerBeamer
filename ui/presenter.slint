@@ -12,6 +12,58 @@ export enum ActiveTool {
     Redo,
 }
 
+export struct LaserBand {
+    commands: string,
+    intensity: float,
+    radius: float,
+}
+
+// One glow pass of the vector laser trail. The Path is grown by the stroke width on every side
+// because Slint insets the fitted path by half the stroke width.
+component LaserPass inherits Rectangle {
+    in property <string> commands;
+    in property <brush> stroke;
+    in property <length> stroke-px;
+    width: 100%;
+    height: 100%;
+
+    Path {
+        x: -root.stroke-px / 2;
+        y: -root.stroke-px / 2;
+        width: root.width + root.stroke-px;
+        height: root.height + root.stroke-px;
+        commands: root.commands;
+        viewbox-width: 1000;
+        viewbox-height: 1000;
+        fit: fill;
+        stroke: root.stroke;
+        stroke-width: root.stroke-px;
+        // Butt caps: neighbouring brightness bands meet edge to edge. Round caps would overlap
+        // at every band boundary and show as ring artifacts where the alpha doubles.
+        stroke-line-cap: butt;
+        stroke-line-join: round;
+    }
+}
+
+// Neon-tube laser trail drawn by the renderer: per brightness band, a soft halo, the
+// saturated tube wall and a lighter filament core, all fading with the band's intensity.
+// The core is a tint of the laser color, not pure white, so on white slides it never reads
+// as a gap between two lines.
+component LaserVectorTrail inherits Rectangle {
+    in property <[LaserBand]> bands;
+    in property <color> trail-color;
+    // Trail radii are tuned for a 1600px-wide slide
+    property <float> px-scale: self.width / 1600px;
+
+    for band in root.bands: Rectangle {
+        width: 100%;
+        height: 100%;
+        LaserPass { commands: band.commands; stroke: root.trail-color.with-alpha(band.intensity * 0.2); stroke-px: 1px * band.radius * 2.4 * 2 * root.px-scale; }
+        LaserPass { commands: band.commands; stroke: root.trail-color.with-alpha(band.intensity); stroke-px: 1px * band.radius * 1.2 * 2 * root.px-scale; }
+        LaserPass { commands: band.commands; stroke: root.trail-color.mix(#ffffff, 0.45).with-alpha(band.intensity); stroke-px: 1px * band.radius * 0.5 * 2 * root.px-scale; }
+    }
+}
+
 export struct SlideThumbnail {
     index: int,
     image: image,
@@ -465,12 +517,12 @@ component ToolSizeCard inherits Rectangle {
 export component PresenterWindow inherits Window {
     title: "PowerBeamer - " + root.document_title;
     icon: @image-url("icons/app_icon.svg");
-    min-width: 1100px;
-    min-height: 720px;
+    min-width: 800px;
+    min-height: 560px;
     background: #18181a;
 
     in-out property <string> document_title: "Interactive Beamer Presentation.pdf";
-    in-out property <ActiveTool> current_tool: ActiveTool.Pen;
+    in-out property <ActiveTool> current_tool: ActiveTool.Laser;
     in-out property <color> active_color: #fef04e;
     in-out property <length> stroke_width: 3.5px;
     in-out property <int> current_slide: 1;
@@ -489,6 +541,7 @@ export component PresenterWindow inherits Window {
     // Laser trail layer: small image covering only the trail's bounding box (normalized rect)
     in-out property <image> laser_layer_image;
     in-out property <bool> laser_layer_visible: false;
+    in-out property <[LaserBand]> laser_bands;
     in-out property <float> laser_layer_x: 0;
     in-out property <float> laser_layer_y: 0;
     in-out property <float> laser_layer_w: 0;
@@ -546,6 +599,8 @@ export component PresenterWindow inherits Window {
     in-out property <string> media_time_text: "00:00 / 01:30";
     in-out property <string> media_speed_text: "1.0x";
     in-out property <bool> media_speech_active: true;
+    in-out property <int> media_clip_count: 0;
+    in-out property <int> media_clip_index: 0;
     in-out property <float> slide_aspect: 1.7778;
     in-out property <bool> is_recording: false;
 
@@ -613,6 +668,7 @@ export component PresenterWindow inherits Window {
     callback seek_media(float);
     callback toggle_media_speed();
     callback toggle_media_speech();
+    callback select_media_clip(int);
     callback tool_selected(ActiveTool);
     callback color_changed(color);
     callback color_wheel_touched(length, length);
@@ -2450,12 +2506,30 @@ export component PresenterWindow inherits Window {
                         }
                     }
 
+                    // Outline of the clip the toolbar drives, when the slide has several
+                    if root.current_has_media && root.media_clip_count > 1 && !root.media_video_visible: Rectangle {
+                        x: root.media_rect_x * parent.width;
+                        y: root.media_rect_y * parent.height;
+                        width: root.media_rect_w * parent.width;
+                        height: root.media_rect_h * parent.height;
+                        border-width: 2px;
+                        border-color: #ff3b30;
+                        background: transparent;
+                    }
+
                     // Vector Inking Overlay
                     Image {
                         width: 100%;
                         height: 100%;
                         source: root.ink_overlay_image;
                         image-fit: fill;
+                    }
+
+                    LaserVectorTrail {
+                        width: 100%;
+                        height: 100%;
+                        bands: root.laser_bands;
+                        trail-color: root.laser_color;
                     }
 
                     if root.laser_layer_visible: Image {
@@ -5368,10 +5442,63 @@ export component PresenterWindow inherits Window {
                             }
                         }
 
-                        // Right-side Controls: Speed badge
+                        // Right-side Controls: Clip switcher, Speed badge
                         HorizontalLayout {
                             spacing: 12px;
                             alignment: end;
+
+                            // Clip Switcher (only on slides with several clips): ‹ 1/2 ›
+                            if root.media_clip_count > 1: HorizontalLayout {
+                                spacing: 4px;
+
+                                Rectangle {
+                                    width: 28px;
+                                    height: 28px;
+                                    y: 10px;
+                                    border-radius: 14px;
+                                    background: prev_clip_touch.has-hover ? #ffffff2a : #ffffff14;
+                                    Text {
+                                        text: "‹";
+                                        color: #f4f4f5;
+                                        font-size: 16px;
+                                        font-weight: 600;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                    prev_clip_touch := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => { root.select_media_clip(root.media_clip_index - 1); }
+                                    }
+                                }
+
+                                Text {
+                                    text: "Clip \{root.media_clip_index + 1}/\{root.media_clip_count}";
+                                    color: #dddddd;
+                                    font-size: 12px;
+                                    font-weight: 600;
+                                    vertical-alignment: center;
+                                }
+
+                                Rectangle {
+                                    width: 28px;
+                                    height: 28px;
+                                    y: 10px;
+                                    border-radius: 14px;
+                                    background: next_clip_touch.has-hover ? #ffffff2a : #ffffff14;
+                                    Text {
+                                        text: "›";
+                                        color: #f4f4f5;
+                                        font-size: 16px;
+                                        font-weight: 600;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                    next_clip_touch := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => { root.select_media_clip(root.media_clip_index + 1); }
+                                    }
+                                }
+                            }
 
                             // Speed Button
                             Rectangle {
@@ -7128,8 +7255,8 @@ export component PresenterWindow inherits Window {
 export component AudienceWindow inherits Window {
     title: "PowerBeamer - Audience View (Projector)";
     icon: @image-url("icons/app_icon.svg");
-    min-width: 800px;
-    min-height: 600px;
+    min-width: 320px;
+    min-height: 180px;
     background: #000000;
 
     in-out property <image> slide_image;
@@ -7137,6 +7264,7 @@ export component AudienceWindow inherits Window {
     // Laser trail layer: small image covering only the trail's bounding box (normalized rect)
     in-out property <image> laser_layer_image;
     in-out property <bool> laser_layer_visible: false;
+    in-out property <[LaserBand]> laser_bands;
     in-out property <float> laser_layer_x: 0;
     in-out property <float> laser_layer_y: 0;
     in-out property <float> laser_layer_w: 0;
@@ -7156,6 +7284,11 @@ export component AudienceWindow inherits Window {
     in-out property <float> media_rect_y: 0.26;
     in-out property <float> media_rect_w: 0.70;
     in-out property <float> media_rect_h: 0.50;
+
+    // Pointer input on the audience slide, handled exactly like the presenter canvas
+    callback canvas_pointer_down(float, float, float);
+    callback canvas_pointer_move(float, float, float);
+    callback canvas_pointer_up();
 
     Rectangle {
         width: 100%;
@@ -7209,6 +7342,32 @@ export component AudienceWindow inherits Window {
                 height: 100%;
                 source: root.ink_image;
                 image-fit: fill;
+            }
+
+            // Interactive touch area for drawing / laser / eraser (tools are picked in the presenter view)
+            TouchArea {
+                mouse-cursor: MouseCursor.crosshair;
+                pointer-event(event) => {
+                    let norm_x = max(0.0, min(1.0, (self.mouse-x / 1px) / (self.width / 1px)));
+                    let norm_y = max(0.0, min(1.0, (self.mouse-y / 1px) / (self.height / 1px)));
+                    if (event.kind == PointerEventKind.down) {
+                        root.canvas_pointer_down(norm_x, norm_y, 1.0);
+                    } else if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+                        root.canvas_pointer_up();
+                    }
+                }
+                moved => {
+                    let norm_x = max(0.0, min(1.0, (self.mouse-x / 1px) / (self.width / 1px)));
+                    let norm_y = max(0.0, min(1.0, (self.mouse-y / 1px) / (self.height / 1px)));
+                    root.canvas_pointer_move(norm_x, norm_y, self.pressed ? 1.0 : 0.0);
+                }
+            }
+
+            LaserVectorTrail {
+                width: 100%;
+                height: 100%;
+                bands: root.laser_bands;
+                trail-color: root.laser_color;
             }
 
             if root.laser_layer_visible: Image {
@@ -7281,8 +7440,8 @@ export component AudienceWindow inherits Window {
 export component NotesWindow inherits Window {
     title: "PowerBeamer - Speaker Notes (Detached)";
     icon: @image-url("icons/app_icon.svg");
-    min-width: 400px;
-    min-height: 500px;
+    min-width: 280px;
+    min-height: 300px;
     background: #18181b;
 
     in-out property <int> slide_num: 1;

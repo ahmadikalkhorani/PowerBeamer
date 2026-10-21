@@ -30,7 +30,7 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
             Rc::new(move || {
                 let (clip_path, is_audio, cur_time, speed, duration, muted, rect) = {
                     let mut st = state.borrow_mut();
-                    let clip_opt = st.deck.current_slide().media_clips.first().cloned();
+                    let clip_opt = st.active_clip();
                     if let Some(clip) = clip_opt {
                         if !clip.is_resolved {
                             if let Some(p) = presenter_handle.upgrade() {
@@ -272,7 +272,7 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                     st.media_current_time_secs = p_clamped * st.media_duration_secs;
                     let playing = st.media_playing;
                     let seek_t = st.media_current_time_secs;
-                    let clip = st.deck.current_slide().media_clips.first().cloned();
+                    let clip = st.active_clip();
                     (p_clamped, playing, seek_t, clip)
                 };
                 lock(&video_player).set_current_time(seek_time);
@@ -357,6 +357,33 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                 if is_playing {
                     start_playback();
                 }
+            });
+        }
+
+        // 8. Select Media Clip (slides with several clips: stop the current one, switch, re-render)
+        {
+            let state = state.clone();
+            let video_player = video_player.clone();
+            let update_slide_view = update_slide_view.clone();
+            presenter_window.on_select_media_clip(move |idx| {
+                {
+                    let mut st = state.borrow_mut();
+                    let count = st.deck.current_slide().media_clips.len();
+                    if count == 0 {
+                        return;
+                    }
+                    let idx = idx.rem_euclid(count as i32) as usize;
+                    if idx == st.active_clip_index() {
+                        return;
+                    }
+                    st.active_media_clip = (st.deck.current_index, idx);
+                    st.media_playing = false;
+                    st.media_current_time_secs = 0.0;
+                    st.media_progress = 0.0;
+                }
+                lock(&video_player).stop();
+                // Re-render picks up the new clip's rect, label and duration
+                update_slide_view();
             });
         }
     }

@@ -131,18 +131,7 @@ impl InkingRasterizer {
             return;
         }
 
-        let wall_now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-
-        let last_t = trail.last_point().map(|p| p.2).unwrap_or(wall_now);
-        let now_ms = if wall_now.saturating_sub(last_t) > trail.duration_ms * 10 {
-            last_t
-        } else {
-            wall_now.max(last_t)
-        };
-
+        let now_ms = laser_trail_clock(trail);
         let (w, h) = (full_w, full_h);
 
         let base_r = trail.color_rgba[0];
@@ -319,6 +308,94 @@ impl InkingRasterizer {
                 }
             }
         }
+    }
+}
+
+/// Trail time base: wall clock, or the newest point's time when the clock is far off
+/// (e.g. a trail built with synthetic timestamps).
+fn laser_trail_clock(trail: &LaserTrail) -> u64 {
+    let wall_now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    let last_t = trail.last_point().map(|p| p.2).unwrap_or(wall_now);
+    if wall_now.saturating_sub(last_t) > trail.duration_ms * 10 {
+        last_t
+    } else {
+        wall_now.max(last_t)
+    }
+}
+
+/// Number of brightness levels the vector laser trail is split into.
+pub const LASER_BAND_COUNT: usize = 24;
+
+/// One brightness level of the vector laser trail: SVG path commands in a 0..1000 viewbox
+/// (normalized slide coordinates × 1000) and the band's intensity in 0..1.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LaserBandPath {
+    pub commands: String,
+    pub intensity: f32,
+    /// Filament radius in pixels of a 1600px-wide slide (same scale as the raster trail)
+    pub radius: f32,
+}
+
+impl InkingRasterizer {
+    /// Splits the fading laser trail into a few constant-intensity polylines, so the UI can
+    /// stroke them as vector paths instead of rasterizing the trail on the CPU every frame.
+    pub fn laser_trail_bands(trail: &LaserTrail) -> Vec<LaserBandPath> {
+        use std::fmt::Write;
+        if trail.is_empty() || !trail.draw_lines {
+            return Vec::new();
+        }
+        let strokes = trail.smoothed_strokes(laser_trail_clock(trail));
+        let band_of = |i: f32| ((i.clamp(0.0, 1.0) * LASER_BAND_COUNT as f32).ceil() as usize).clamp(1, LASER_BAND_COUNT) - 1;
+        let mut commands = vec![String::new(); LASER_BAND_COUNT];
+        let put = |cmd: &mut String, op: char, x: f32, y: f32| {
+            let _ = write!(cmd, "{}{:.1} {:.1} ", op, x.clamp(0.0, 1.0) * 1000.0, y.clamp(0.0, 1.0) * 1000.0);
+        };
+        for stroke in &strokes {
+            // Consecutive segments in the same band are chained into one polyline
+            let mut open_band: Option<usize> = None;
+            if stroke.len() == 1 {
+                let p = stroke[0];
+                if p.2 >= 0.02 {
+                    let b = band_of(p.2);
+                    put(&mut commands[b], 'M', p.0, p.1);
+                    put(&mut commands[b], 'L', p.0, p.1);
+                }
+                continue;
+            }
+            for (i, seg) in stroke.windows(2).enumerate() {
+                let (p1, p2) = (seg[0], seg[1]);
+                let avg = (p1.2 + p2.2) * 0.5;
+                if avg < 0.02 {
+                    open_band = None;
+                    continue;
+                }
+                let b = band_of(avg);
+                if open_band != Some(b) {
+                    // Paths have butt caps, so a band starting exactly where the previous one ends
+                    // leaves a wedge-shaped gap on sharp bends. Start one point earlier instead: the
+                    // shared segment is tiny, and the bend is drawn by this path's round join.
+                    let start = if open_band.is_some() && i > 0 { stroke[i - 1] } else { p1 };
+                    put(&mut commands[b], 'M', start.0, start.1);
+                    if open_band.is_some() && i > 0 {
+                        put(&mut commands[b], 'L', p1.0, p1.1);
+                    }
+                    open_band = Some(b);
+                }
+                put(&mut commands[b], 'L', p2.0, p2.1);
+            }
+        }
+        commands
+            .into_iter()
+            .enumerate()
+            .filter(|(_, c)| !c.is_empty())
+            .map(|(b, c)| {
+                let intensity = (b + 1) as f32 / LASER_BAND_COUNT as f32;
+                LaserBandPath { commands: c.trim_end().to_string(), intensity, radius: 2.6 + laser_radius_curve(intensity) * 1.2 }
+            })
+            .collect()
     }
 }
 

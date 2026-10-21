@@ -142,17 +142,17 @@ mod tests {
             let doc = pdfium
                 .load_pdf_from_file(pdf_path, None)
                 .expect("Should load presentation.pdf");
-            assert_eq!(doc.pages().len(), 10, "presentation.pdf has 10 physical pages (5 slides + 5 notes)");
+            assert_eq!(doc.pages().len(), 14, "presentation.pdf has 14 physical pages (7 slides + 7 notes)");
             println!("Successfully verified test_deck/presentation.pdf has 10 physical pages!");
 
             let (slides, _toc) = PdfiumLoader::load_deck_from_file(pdf_path, presenter::pdf::deck::RenderQuality::Balanced)
                 .expect("load slides");
 
             // Critical check: Note pages must NOT be presented as audience slides!
-            assert_eq!(slides.len(), 5, "Audience slides must only contain the 5 presentation slides, not 10!");
+            assert_eq!(slides.len(), 7, "Audience slides must only contain the 7 presentation slides, not 14!");
 
-            // Check that physical pages are properly mapped (1, 3, 5, 7, 9)
-            let expected_physical = [1, 3, 5, 7, 9];
+            // Check that physical pages are properly mapped (1, 3, 5, ..., 13)
+            let expected_physical = [1, 3, 5, 7, 9, 11, 13];
             for (i, s) in slides.iter().enumerate() {
                 assert_eq!(s.page_index, i + 1, "Slide presentation index is 1-indexed");
                 assert_eq!(s.physical_page_index, expected_physical[i], "Slide physical page matches Beamer frame");
@@ -175,7 +175,7 @@ mod tests {
                 page_texts.push(page.text().map(|t| t.all()).unwrap_or_default());
             }
             let (standalone_mappings, standalone_mode) = presenter::pdf::beamer::BeamerMetadata::detect_slide_mappings(
-                10,
+                14,
                 &page_sizes,
                 &page_labels,
                 &page_texts,
@@ -185,7 +185,7 @@ mod tests {
             for (idx, text) in page_texts.iter().enumerate() {
                 println!("Page {} text snippet: {:?}", idx + 1, text.chars().take(60).collect::<String>());
             }
-            assert_eq!(standalone_mappings.len(), 5, "Standalone without .nav must also detect 5 slides");
+            assert_eq!(standalone_mappings.len(), 7, "Standalone without .nav must also detect 7 slides");
         }
     }
 
@@ -447,6 +447,19 @@ mod tests {
         println!("Video Slide Media Clip: {:?}", clip4);
         assert!(clip4.is_resolved, "Video media should be resolved on disk");
         assert_eq!(clip4.display_path, "sample_video.mp4");
+
+        // Slide 5: two videos side by side, in document order, with separate placements
+        let two_videos = &slides[4];
+        let names: Vec<&str> = two_videos.media_clips.iter().map(|c| c.display_path.as_str()).collect();
+        assert_eq!(names, ["sample_video.mp4", "sample_video_2.mp4"]);
+        assert!(two_videos.media_clips.iter().all(|c| c.is_resolved));
+        let (left, right) = (two_videos.media_clips[0].rect, two_videos.media_clips[1].rect);
+        assert!(left[0] + left[2] <= right[0] + 0.01, "Clips should not overlap: {:?} vs {:?}", left, right);
+
+        // Slide 6: audio first, then a video
+        let mixed = &slides[5];
+        let names: Vec<&str> = mixed.media_clips.iter().map(|c| c.display_path.as_str()).collect();
+        assert_eq!(names, ["sample_audio.mp3", "sample_video_2.mp4"]);
     }
 
     #[test]
@@ -908,9 +921,14 @@ mod tests {
         let _ = sample_bg.save(artifact_dir.join("test_presentation_tool_laser_lines.png"));
 
         // 3. Test pruning (time progression)
-        // At t = 3000, points at t <= 1200 (1000, 1200) should be pruned because cutoff is 3000 - 1800 = 1200
+        // While the button is held, a line trail keeps every point regardless of age
         laser_trail.prune(3100); // cutoff 1300
-        assert_eq!(laser_trail.point_count(), 3); // 1400, 1600, 1800 remain
+        assert_eq!(laser_trail.point_count(), 5, "Held line trail must not lose its oldest points");
+
+        // On release the whole stroke fades together from the release time (its last point, 1800)
+        laser_trail.end_stroke();
+        laser_trail.prune(3100); // cutoff 1300 < 1800
+        assert_eq!(laser_trail.point_count(), 5, "Released stroke fades as a whole, not tail first");
 
         // At t = 4000 (cutoff 2200), all points expire and vanish smoothly
         laser_trail.prune(4000);
@@ -941,6 +959,7 @@ mod tests {
 
             let mut test_trail = LaserTrail::new(dur_ms, [255, 0, 0, 255], true);
             test_trail.add(0.5, 0.5, 1000);
+            test_trail.end_stroke(); // fading starts on release
 
             if dur_sec == 0.0 {
                 test_trail.prune(1001);
@@ -957,6 +976,40 @@ mod tests {
                 assert_eq!(test_trail.point_count(), 0);
             }
         }
+    }
+
+    #[test]
+    fn test_laser_vector_bands() {
+        use presenter::ink::{InkingRasterizer, LaserTrail, LASER_BAND_COUNT};
+
+        let mut trail = LaserTrail::new(2000, [255, 59, 48, 255], true);
+        trail.start_stroke();
+        for i in 0..20 {
+            trail.add(0.1 + i as f32 * 0.01, 0.3, 1000 + i * 50);
+        }
+        trail.end_stroke();
+        // A second, separate stroke must start with its own move-to, never a connecting line
+        trail.start_stroke();
+        trail.add(0.8, 0.7, 2000);
+        trail.add(0.9, 0.7, 2050);
+        trail.end_stroke();
+
+        let bands = InkingRasterizer::laser_trail_bands(&trail);
+        assert!(!bands.is_empty() && bands.len() <= LASER_BAND_COUNT);
+        let mut prev = 0.0;
+        for b in &bands {
+            assert!(b.intensity > prev && b.intensity <= 1.0, "Bands are ordered dim to bright");
+            prev = b.intensity;
+            assert!(b.commands.starts_with('M'));
+            assert!(b.radius > 2.0);
+        }
+        let all: String = bands.iter().map(|b| b.commands.as_str()).collect::<Vec<_>>().join(" ");
+        assert!(all.contains("M800.0 700.0") || all.contains("M80"), "Second stroke starts with a move: {}", all);
+        assert!(!all.contains("L800.0 700.0") || all.contains("M800.0 700.0"));
+
+        // The comet-tail mode stays rasterized
+        let comet = LaserTrail { draw_lines: false, ..trail.clone() };
+        assert!(InkingRasterizer::laser_trail_bands(&comet).is_empty());
     }
 
     #[test]

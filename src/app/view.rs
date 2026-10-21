@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use image::RgbaImage;
-use slint::{ComponentHandle, Image, Rgba8Pixel, SharedPixelBuffer, SharedString};
+use slint::{ComponentHandle, Image, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
 
 use super::gpu_images::*;
 use super::state::*;
@@ -15,6 +15,19 @@ use crate::ink::InkingRasterizer;
 use crate::media::InPlaceVideoPlayer;
 use crate::pdf::TocEntry;
 use crate::*;
+
+/// One `LaserBand` row per brightness level, in level order; levels without segments get empty commands.
+fn laser_band_rows(bands: &[ink::LaserBandPath]) -> Vec<LaserBand> {
+    (0..ink::LASER_BAND_COUNT)
+        .map(|level| {
+            let intensity = (level + 1) as f32 / ink::LASER_BAND_COUNT as f32;
+            match bands.iter().find(|b| (b.intensity - intensity).abs() < 1e-4) {
+                Some(b) => LaserBand { commands: b.commands.as_str().into(), intensity: b.intensity, radius: b.radius },
+                None => LaserBand { commands: SharedString::new(), intensity, radius: 0.0 },
+            }
+        })
+        .collect()
+}
 
 /// Builds the closure that re-renders the ink overlay and laser layer for the current slide.
 pub(crate) fn build_ink_overlay(
@@ -28,6 +41,14 @@ pub(crate) fn build_ink_overlay(
         let audience_handle = audience_window.as_weak();
         let state = state.clone();
 
+        // Vector laser trail: one shared model, stroked by the renderer in both windows. It always
+        // holds one row per brightness level (empty commands when unused) so the path items are
+        // never destroyed and recreated: the renderer caches paths per item, and a recycled item
+        // could otherwise briefly show a stale trail.
+        let laser_bands: Rc<VecModel<LaserBand>> = Rc::new(VecModel::from(laser_band_rows(&[])));
+        presenter_window.set_laser_bands(ModelRc::from(laser_bands.clone()));
+        audience_window.set_laser_bands(ModelRc::from(laser_bands.clone()));
+
         Rc::new(move || {
             let mut guard = state.borrow_mut();
             let st = &mut *guard;
@@ -39,7 +60,15 @@ pub(crate) fn build_ink_overlay(
 
             // The laser lives in its own small layer cropped to the trail, so pointing never
             // re-copies or re-uploads the full-size ink overlay.
-            let laser_layer = st.laser_trail.as_ref().and_then(|trail| {
+            let bands = st.laser_trail.as_ref().map(InkingRasterizer::laser_trail_bands).unwrap_or_default();
+            for (row, band) in laser_band_rows(&bands).into_iter().enumerate() {
+                if laser_bands.row_data(row).as_ref() != Some(&band) {
+                    laser_bands.set_row_data(row, band);
+                }
+            }
+
+            // The comet-tail mode (no lines) is still rasterized into its own small layer
+            let laser_layer = st.laser_trail.as_ref().filter(|trail| !trail.draw_lines).and_then(|trail| {
                 let (x0, y0, x1, y1) = InkingRasterizer::laser_trail_bounds(trail, overlay_w, overlay_h)?;
                 let (bw, bh) = (x1 - x0, y1 - y0);
                 let mut buffer = SharedPixelBuffer::<Rgba8Pixel>::new(bw, bh);
@@ -286,7 +315,9 @@ pub(crate) fn build_slide_view(
             };
 
             let has_media = !current_slide.media_clips.is_empty();
-            let first_clip = current_slide.media_clips.first().cloned();
+            let clip_count = current_slide.media_clips.len();
+            let clip_index = st.active_clip_index();
+            let first_clip = st.active_clip();
             let slide_aspect = current_slide.aspect_ratio;
             let is_dual_screen = current_slide.is_dual_screen;
             let slide_notes = current_slide.notes.clone();
@@ -343,6 +374,8 @@ pub(crate) fn build_slide_view(
                 p.set_has_source_file(st.deck.file_path.is_some());
                 p.set_sync_with_source(st.sync_with_source);
                 p.set_current_has_media(has_media);
+                p.set_media_clip_count(clip_count as i32);
+                p.set_media_clip_index(clip_index as i32);
                 p.set_media_status_text(SharedString::from(&media_label));
                 p.set_media_playing(false);
                 p.set_media_video_visible(false);

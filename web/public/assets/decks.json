@@ -69,7 +69,7 @@
     "id": "beamer_notes",
     "title": "LaTeX Beamer with Separate Note Pages (16:9)",
     "file_name": "presentation.pdf",
-    "total_frames": 5,
+    "total_frames": 7,
     "toc": [
       {
         "title": "Frame 1",
@@ -100,13 +100,25 @@
         "page_index": 5,
         "level": 0,
         "frame_index": 5
+      },
+      {
+        "title": "Frame 6",
+        "page_index": 6,
+        "level": 0,
+        "frame_index": 6
+      },
+      {
+        "title": "Frame 7",
+        "page_index": 7,
+        "level": 0,
+        "frame_index": 7
       }
     ],
     "slides": [
       {
         "page_index": 1,
         "frame_index": 1,
-        "total_frames": 5,
+        "total_frames": 7,
         "overlay_step": 1,
         "overlay_total": 1,
         "title": "Slide 1",
@@ -122,7 +134,7 @@
       {
         "page_index": 2,
         "frame_index": 2,
-        "total_frames": 5,
+        "total_frames": 7,
         "overlay_step": 1,
         "overlay_total": 1,
         "title": "Slide 2",
@@ -138,7 +150,7 @@
       {
         "page_index": 3,
         "frame_index": 3,
-        "total_frames": 5,
+        "total_frames": 7,
         "overlay_step": 1,
         "overlay_total": 1,
         "title": "Slide 3",
@@ -166,7 +178,7 @@
       {
         "page_index": 4,
         "frame_index": 4,
-        "total_frames": 5,
+        "total_frames": 7,
         "overlay_step": 1,
         "overlay_total": 1,
         "title": "Slide 4",
@@ -194,17 +206,95 @@
       {
         "page_index": 5,
         "frame_index": 5,
-        "total_frames": 5,
+        "total_frames": 7,
         "overlay_step": 1,
         "overlay_total": 1,
         "title": "Slide 5",
-        "notes": "SPEAKER NOTES (Slide 5):\n• Wrap up the tutorial walkthrough.\n• Press T to view the slide thumbnail grid and rearrange or navigate between slides.\n• Test saving the annotated PDF from the top action menu.",
+        "notes": "SPEAKER NOTES (Slide 5):\n• The selected clip is outlined in red on the presenter screen.\n• Switching clips stops the current one and resets the timeline.",
         "is_dual_screen": false,
         "aspect_ratio": 1.7787194,
         "has_notes_image": true,
         "audience_img": "beamer_notes_slide_aud_5.png",
         "presenter_img": "beamer_notes_slide_pres_5.png",
         "notes_img": "beamer_notes_slide_note_5.png",
+        "media_clips": [
+          {
+            "file_path": "/Users/sabazakeri/Documents/Projects/Presenter/test_deck/sample_video.mp4",
+            "display_path": "sample_video.mp4",
+            "is_resolved": true,
+            "rect": [
+              0.10625012,
+              0.42336488,
+              0.37500086,
+              0.37500295
+            ]
+          },
+          {
+            "file_path": "/Users/sabazakeri/Documents/Projects/Presenter/test_deck/sample_video_2.mp4",
+            "display_path": "sample_video_2.mp4",
+            "is_resolved": true,
+            "rect": [
+              0.51875126,
+              0.42336488,
+              0.37499863,
+              0.37500295
+            ]
+          }
+        ]
+      },
+      {
+        "page_index": 6,
+        "frame_index": 6,
+        "total_frames": 7,
+        "overlay_step": 1,
+        "overlay_total": 1,
+        "title": "Slide 6",
+        "notes": "SPEAKER NOTES (Slide 6):\n• Press play for the narration, then switch to Clip 2/2 for the video.",
+        "is_dual_screen": false,
+        "aspect_ratio": 1.7787194,
+        "has_notes_image": true,
+        "audience_img": "beamer_notes_slide_aud_6.png",
+        "presenter_img": "beamer_notes_slide_pres_6.png",
+        "notes_img": "beamer_notes_slide_note_6.png",
+        "media_clips": [
+          {
+            "file_path": "/Users/sabazakeri/Documents/Projects/Presenter/test_deck/sample_audio.mp3",
+            "display_path": "sample_audio.mp3",
+            "is_resolved": true,
+            "rect": [
+              0.19982229,
+              0.38266605,
+              0.6003576,
+              0.091847666
+            ]
+          },
+          {
+            "file_path": "/Users/sabazakeri/Documents/Projects/Presenter/test_deck/sample_video_2.mp4",
+            "display_path": "sample_video_2.mp4",
+            "is_resolved": true,
+            "rect": [
+              0.32812545,
+              0.50407654,
+              0.3437491,
+              0.3433313
+            ]
+          }
+        ]
+      },
+      {
+        "page_index": 7,
+        "frame_index": 7,
+        "total_frames": 7,
+        "overlay_step": 1,
+        "overlay_total": 1,
+        "title": "Slide 7",
+        "notes": "SPEAKER NOTES (Slide 7):\n• Wrap up the tutorial walkthrough.\n• Press T to view the slide thumbnail grid and rearrange or navigate between slides.\n• Test saving the annotated PDF from the top action menu.",
+        "is_dual_screen": false,
+        "aspect_ratio": 1.7787194,
+        "has_notes_image": true,
+        "audience_img": "beamer_notes_slide_aud_7.png",
+        "presenter_img": "beamer_notes_slide_pres_7.png",
+        "notes_img": "beamer_notes_slide_note_7.png",
         "media_clips": []
       }
     ]

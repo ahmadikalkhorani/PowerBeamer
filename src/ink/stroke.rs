@@ -269,7 +269,28 @@ impl LaserTrail {
     }
 
     pub fn end_stroke(&mut self) {
+        // Line trails stay fully visible while drawn and fade as a whole from the release
+        // moment: restamp the finished stroke so every point shares the release time.
+        if self.draw_lines && self.is_active {
+            let wall_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            // Trust the points' own clock when the wall clock is far off (synthetic timestamps)
+            let last_t = self.last_point().map(|p| p.2).unwrap_or(wall_ms);
+            let now_ms = if wall_ms.saturating_sub(last_t) > self.duration_ms * 10 { last_t } else { wall_ms };
+            if let Some(stroke) = self.strokes.last_mut() {
+                for p in stroke.iter_mut() {
+                    p.2 = p.2.max(now_ms);
+                }
+            }
+        }
         self.is_active = false;
+    }
+
+    /// The stroke still being drawn in line mode, which neither fades nor gets pruned.
+    fn held_stroke_index(&self) -> Option<usize> {
+        (self.draw_lines && self.is_active && !self.strokes.is_empty()).then(|| self.strokes.len() - 1)
     }
 
     pub fn add(&mut self, x: f32, y: f32, now_ms: u64) {
@@ -294,8 +315,11 @@ impl LaserTrail {
 
     pub fn prune(&mut self, now_ms: u64) {
         let cutoff = now_ms.saturating_sub(self.duration_ms);
-        for stroke in &mut self.strokes {
-            stroke.retain(|&(_, _, t)| t >= cutoff);
+        let held = self.held_stroke_index();
+        for (i, stroke) in self.strokes.iter_mut().enumerate() {
+            if Some(i) != held {
+                stroke.retain(|&(_, _, t)| t >= cutoff);
+            }
         }
         self.strokes.retain(|stroke| !stroke.is_empty());
     }
@@ -410,10 +434,20 @@ impl LaserTrail {
     }
 
     pub fn smoothed_strokes(&self, now_ms: u64) -> Vec<Vec<(f32, f32, f32)>> {
+        let held = self.held_stroke_index();
         self.strokes
             .iter()
-            .filter(|s| !s.is_empty())
-            .map(|s| Self::smooth_stroke_points(s, self.duration_ms, now_ms))
+            .enumerate()
+            .filter(|(_, s)| !s.is_empty())
+            .map(|(i, s)| {
+                if Some(i) == held {
+                    // Full intensity while held
+                    let fresh: Vec<_> = s.iter().map(|&(x, y, _)| (x, y, now_ms)).collect();
+                    Self::smooth_stroke_points(&fresh, self.duration_ms, now_ms)
+                } else {
+                    Self::smooth_stroke_points(s, self.duration_ms, now_ms)
+                }
+            })
             .filter(|s| !s.is_empty())
             .collect()
     }

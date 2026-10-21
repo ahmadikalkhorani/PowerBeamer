@@ -50,8 +50,7 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
 
                 let mut media_update = None;
                 let is_video_clip = {
-                    let slide = st.deck.current_slide();
-                    if let Some(clip) = slide.media_clips.first() {
+                    if let Some(clip) = st.active_clip().as_ref() {
                         let path = &clip.file_path;
                         !(path.ends_with(".mp3")
                             || path.ends_with(".wav")

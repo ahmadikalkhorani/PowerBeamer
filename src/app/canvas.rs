@@ -334,9 +334,9 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                             aud.set_laser_y(y);
                         }
 
-                        // Responsive frame pacing: render at ~60 FPS (16ms) during active mouse dragging
-                        // This keeps the mouse event thread completely unblocked with zero latency
-                        if st.last_laser_update.elapsed().as_millis() >= 16 {
+                        // Line trails are vector paths and cheap to update on every move; the
+                        // rasterized comet tail is still paced to ~60 FPS.
+                        if st.laser_draw_lines || st.last_laser_update.elapsed().as_millis() >= 16 {
                             st.last_laser_update = std::time::Instant::now();
                             drop(st);
                             update_ink();
@@ -525,6 +525,38 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
             drop(st);
             if has_stroke {
                 update_ink();
+            }
+        });
+    }
+
+    // --- AUDIENCE CANVAS INPUT ---
+    // Forwarded to the presenter handlers above so both windows share one inking/laser path.
+    // The presenter's laser dot is placed here because its own TouchArea isn't the one moving.
+    {
+        let presenter_handle = presenter_window.as_weak();
+        audience_window.on_canvas_pointer_down(move |x, y, pressure| {
+            if let Some(p) = presenter_handle.upgrade() {
+                p.set_laser_x(x);
+                p.set_laser_y(y);
+                p.invoke_canvas_pointer_down(x, y, pressure);
+            }
+        });
+    }
+    {
+        let presenter_handle = presenter_window.as_weak();
+        audience_window.on_canvas_pointer_move(move |x, y, pressure| {
+            if let Some(p) = presenter_handle.upgrade() {
+                p.set_laser_x(x);
+                p.set_laser_y(y);
+                p.invoke_canvas_pointer_move(x, y, pressure);
+            }
+        });
+    }
+    {
+        let presenter_handle = presenter_window.as_weak();
+        audience_window.on_canvas_pointer_up(move || {
+            if let Some(p) = presenter_handle.upgrade() {
+                p.invoke_canvas_pointer_up();
             }
         });
     }

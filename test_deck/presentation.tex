@@ -7,7 +7,7 @@
 \usepackage{amsmath,amssymb}
 \usepackage{tikz}
 
-% Enable notes (creates 5 slides + 5 notes pages = 10 pages total)
+% Enable notes (creates 7 slides + 7 notes pages = 14 pages total)
 \setbeameroption{show notes}
 
 \title[PowerBeamer Tutorial]{Mastering PowerBeamer \\ Interactive PDF Presentations}
@@ -129,9 +129,63 @@
 \end{frame}
 
 % -----------------------------------------------------------------------------
-% SLIDE 5: Presentation Controls & Summary
+% SLIDE 5: Multiple Videos on One Frame
 % -----------------------------------------------------------------------------
-\begin{frame}{Step 4: Essential Shortcuts \& Dual Display}
+\begin{frame}{Step 4: Several Clips on One Slide}
+  \begin{block}{Two Videos Side by Side}
+    Use the \textbf{Clip 1/2} switcher in the media toolbar to choose which video plays:
+  \end{block}
+
+  \vspace{0.4em}
+  \centering
+  \movie[width=6cm,height=3.375cm,showcontrols=false,autostart=false,poster]{%
+    \includegraphics[width=6cm,height=3.375cm]{sample_first_frame.png}%
+  }{sample_video.mp4}%
+  \hspace{0.6cm}%
+  \movie[width=6cm,height=3.375cm,showcontrols=false,autostart=false,poster]{%
+    \includegraphics[width=6cm,height=3.375cm]{sample_video_2_first_frame.png}%
+  }{sample_video_2.mp4}
+
+  \note{
+    \textbf{SPEAKER NOTES (Slide 5)}:
+    \begin{itemize}
+      \item The selected clip is outlined in red on the presenter screen.
+      \item Switching clips stops the current one and resets the timeline.
+    \end{itemize}
+  }
+\end{frame}
+
+% -----------------------------------------------------------------------------
+% SLIDE 6: Audio and Video on One Frame
+% -----------------------------------------------------------------------------
+\begin{frame}{Step 5: Audio Narration Next to a Video}
+  \begin{alertblock}{Mixed Media}
+    The audio clip comes first in the source, so it is selected by default:
+  \end{alertblock}
+
+  \vspace{0.4em}
+  \centering
+  \movie[autostart=false,showcontrols=true]{
+    \colorbox{blue!15}{\parbox{0.6\textwidth}{\centering \vspace{0.3em} \textbf{[AUDIO] 440 Hz Narration Track} \vspace{0.3em}}}
+  }{sample_audio.mp3}
+
+  \vspace{0.6em}
+  \movie[width=5.5cm,height=3.09cm,showcontrols=false,autostart=false,poster]{%
+    \includegraphics[width=5.5cm,height=3.09cm]{sample_video_2_first_frame.png}%
+  }{sample_video_2.mp4}
+
+  \note{
+    \textbf{SPEAKER NOTES (Slide 6)}:
+    \begin{itemize}
+      \item Press play for the narration, then switch to Clip 2/2 for the video.
+    \end{itemize}
+  }
+\end{frame}
+
+% -----------------------------------------------------------------------------
+% SLIDE 7: Presentation Controls & Summary
+% -----------------------------------------------------------------------------
+\begin{frame}{Step 6: Essential Shortcuts \& Dual Display}
   \begin{columns}[T]
     \begin{column}{0.5\textwidth}
       \textbf{Key Keyboard Shortcuts:}
@@ -157,7 +211,7 @@
   \textbf{You are ready to present with PowerBeamer!}
 
   \note{
-    \textbf{SPEAKER NOTES (Slide 5)}:
+    \textbf{SPEAKER NOTES (Slide 7)}:
     \begin{itemize}
       \item Wrap up the tutorial walkthrough.
       \item Press \textbf{T} to view the slide thumbnail grid and rearrange or navigate between slides.
