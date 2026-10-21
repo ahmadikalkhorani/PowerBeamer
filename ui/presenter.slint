@@ -38,9 +38,7 @@ component LaserPass inherits Rectangle {
         fit: fill;
         stroke: root.stroke;
         stroke-width: root.stroke-px;
-        // Butt caps: neighbouring brightness bands meet edge to edge. Round caps would overlap
-        // at every band boundary and show as ring artifacts where the alpha doubles.
-        stroke-line-cap: butt;
+        stroke-line-cap: round;
         stroke-line-join: round;
     }
 }

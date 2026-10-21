@@ -374,9 +374,8 @@ impl InkingRasterizer {
                 }
                 let b = band_of(avg);
                 if open_band != Some(b) {
-                    // Paths have butt caps, so a band starting exactly where the previous one ends
-                    // leaves a wedge-shaped gap on sharp bends. Start one point earlier instead: the
-                    // shared segment is tiny, and the bend is drawn by this path's round join.
+                    // Start one point earlier so the bend between two bands is drawn by this
+                    // path's round join instead of leaving a wedge-shaped gap.
                     let start = if open_band.is_some() && i > 0 { stroke[i - 1] } else { p1 };
                     put(&mut commands[b], 'M', start.0, start.1);
                     if open_band.is_some() && i > 0 {
