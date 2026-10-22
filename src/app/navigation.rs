@@ -19,6 +19,9 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                 return;
             }
             st.blank_mode = 0;
+            st.zoom_level = 1.0;
+            st.zoom_pan_x = 0.0;
+            st.zoom_pan_y = 0.0;
             if st.deck.next() {
                 drop(st);
                 update();
@@ -41,12 +44,18 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
             if st.is_end_of_show {
                 st.is_end_of_show = false;
                 st.blank_mode = 0;
+                st.zoom_level = 1.0;
+                st.zoom_pan_x = 0.0;
+                st.zoom_pan_y = 0.0;
                 drop(st);
                 update();
                 println!("Returned from end-of-show black screen to last slide.");
                 return;
             }
             st.blank_mode = 0;
+            st.zoom_level = 1.0;
+            st.zoom_pan_x = 0.0;
+            st.zoom_pan_y = 0.0;
             if st.deck.prev() {
                 drop(st);
                 update();
@@ -64,6 +73,9 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                 return;
             }
             st.blank_mode = 0;
+            st.zoom_level = 1.0;
+            st.zoom_pan_x = 0.0;
+            st.zoom_pan_y = 0.0;
             if st.deck.next_frame() {
                 drop(st);
                 update();
@@ -89,11 +101,17 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
             if st.is_end_of_show {
                 st.is_end_of_show = false;
                 st.blank_mode = 0;
+                st.zoom_level = 1.0;
+                st.zoom_pan_x = 0.0;
+                st.zoom_pan_y = 0.0;
                 drop(st);
                 update();
                 return;
             }
             st.blank_mode = 0;
+            st.zoom_level = 1.0;
+            st.zoom_pan_x = 0.0;
+            st.zoom_pan_y = 0.0;
             if st.deck.prev_frame() {
                 drop(st);
                 update();
@@ -158,6 +176,9 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
             let mut st = state.borrow_mut();
             st.is_end_of_show = false;
             st.blank_mode = 0;
+            st.zoom_level = 1.0;
+            st.zoom_pan_x = 0.0;
+            st.zoom_pan_y = 0.0;
             let target = if page_index > 0 { (page_index - 1) as usize } else { 0 };
             if st.deck.jump_to(target) {
                 drop(st);
@@ -174,6 +195,9 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
             let mut st = state.borrow_mut();
             st.is_end_of_show = false;
             st.blank_mode = 0;
+            st.zoom_level = 1.0;
+            st.zoom_pan_x = 0.0;
+            st.zoom_pan_y = 0.0;
             if slide_num >= 1 && (slide_num as usize) <= st.deck.total_slides() {
                 st.deck.current_index = (slide_num - 1) as usize;
                 drop(st);

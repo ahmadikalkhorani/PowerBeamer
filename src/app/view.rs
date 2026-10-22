@@ -406,6 +406,9 @@ pub(crate) fn build_slide_view(
                 p.set_hovered_link_tooltip(SharedString::new());
                 p.set_link_holding(false);
                 p.set_link_hold_progress(0.0);
+                p.set_zoom_level(st.zoom_level);
+                p.set_zoom_pan_x(st.zoom_pan_x);
+                p.set_zoom_pan_y(st.zoom_pan_y);
             }
 
             // Update Audience Window
@@ -419,6 +422,9 @@ pub(crate) fn build_slide_view(
                 a.set_media_rect_y(media_rect[1]);
                 a.set_media_rect_w(media_rect[2]);
                 a.set_media_rect_h(media_rect[3]);
+                a.set_zoom_level(st.zoom_level);
+                a.set_zoom_pan_x(st.zoom_pan_x);
+                a.set_zoom_pan_y(st.zoom_pan_y);
                 a.set_laser_color(slint::Color::from_argb_u8(st.laser_color_rgba[3], st.laser_color_rgba[0], st.laser_color_rgba[1], st.laser_color_rgba[2]));
             }
 

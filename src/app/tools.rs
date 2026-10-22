@@ -45,6 +45,11 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                     aud.set_laser_color(c);
                 }
             }
+            if tool == ActiveTool::Select {
+                st.zoom_level = 1.0;
+                st.zoom_pan_x = 0.0;
+                st.zoom_pan_y = 0.0;
+            }
             println!("Selected tool: {:?}", tool);
         });
     }
@@ -263,6 +268,46 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                     slint::Color::from_argb_u8(rgba[3], rgba[0], rgba[1], rgba[2])
                 }).collect();
                 p.set_custom_palette(std::rc::Rc::new(slint::VecModel::from(slint_colors)).into());
+            }
+        });
+    }
+
+    // --- RESET ZOOM (Z) ---
+    {
+        let state = state.clone();
+        let presenter_handle = presenter_window.as_weak();
+        let audience_handle = audience_window.as_weak();
+        presenter_window.on_reset_zoom(move || {
+            let mut st = state.borrow_mut();
+            st.zoom_level = 1.0;
+            st.zoom_pan_x = 0.0;
+            st.zoom_pan_y = 0.0;
+            st.selection_box = None;
+            if let Some(p) = presenter_handle.upgrade() {
+                p.set_zoom_level(1.0);
+                p.set_zoom_pan_x(0.0);
+                p.set_zoom_pan_y(0.0);
+            }
+            if let Some(a) = audience_handle.upgrade() {
+                a.set_zoom_level(1.0);
+                a.set_zoom_pan_x(0.0);
+                a.set_zoom_pan_y(0.0);
+            }
+            println!("Zoom reset to full slide");
+        });
+    }
+
+    // --- MIDDLE-MOUSE PAN ---
+    {
+        let state = state.clone();
+        let audience_handle = audience_window.as_weak();
+        presenter_window.on_zoom_panned(move |x, y| {
+            let mut st = state.borrow_mut();
+            st.zoom_pan_x = x;
+            st.zoom_pan_y = y;
+            if let Some(a) = audience_handle.upgrade() {
+                a.set_zoom_pan_x(x);
+                a.set_zoom_pan_y(y);
             }
         });
     }

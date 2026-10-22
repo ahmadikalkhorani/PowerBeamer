@@ -255,6 +255,10 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                     drop(st);
                     update_ink();
                 }
+                ActiveTool::Select => {
+                    st.hold_anchor_pos = (x, y);
+                    st.selection_box = Some((x, y, x, y));
+                }
                 _ => {}
             }
         });
@@ -298,7 +302,13 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
             }
 
             if st.active_stroke.is_none() {
-                if st.current_tool == ActiveTool::Eraser && pressure > 0.0 {
+                if st.current_tool == ActiveTool::Select && st.pointer_is_down {
+                    if let Some(ref mut sel_box) = st.selection_box {
+                        sel_box.2 = x;
+                        sel_box.3 = y;
+                    }
+                    return;
+                } else if st.current_tool == ActiveTool::Eraser && pressure > 0.0 {
                     let opts = ink::EraserOptions {
                         radius: st.eraser_radius,
                         erase_whole_line: st.erase_whole_line,
@@ -497,6 +507,41 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
             };
             st.is_shape_snapped = false;
             st.raw_stroke_backup.clear();
+
+            if st.current_tool == ActiveTool::Select {
+                if let Some((x1, y1, x2, y2)) = st.selection_box.take() {
+                    let min_x = x1.min(x2);
+                    let max_x = x1.max(x2);
+                    let min_y = y1.min(y2);
+                    let max_y = y1.max(y2);
+                    let box_width = max_x - min_x;
+                    let box_height = max_y - min_y;
+
+                    if box_width > 0.01 && box_height > 0.01 {
+                        // Coordinates are normalized slide coords (0..1 on both axes),
+                        // so the zoom that fits the box is simply 1 / box extent.
+                        let zoom_x = 1.0 / box_width;
+                        let zoom_y = 1.0 / box_height;
+                        let new_zoom = zoom_x.min(zoom_y).max(1.0).min(10.0);
+
+                        // Keep the zoomed viewport inside the slide bounds
+                        let half = 0.5 / new_zoom;
+                        let center_x = ((min_x + max_x) / 2.0).clamp(half, 1.0 - half);
+                        let center_y = ((min_y + max_y) / 2.0).clamp(half, 1.0 - half);
+
+                        st.zoom_level = new_zoom;
+                        st.zoom_pan_x = center_x;
+                        st.zoom_pan_y = center_y;
+                        println!("Selected zoom: {:.2}x at ({:.3}, {:.3})", new_zoom, center_x, center_y);
+                        drop(st);
+                        update_view();
+                        update_ink();
+                        return;
+                    }
+                }
+                st.selection_box = None;
+                return;
+            }
 
             if st.current_tool == ActiveTool::Laser {
                 st.laser_active = false;

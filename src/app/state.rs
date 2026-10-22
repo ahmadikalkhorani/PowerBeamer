@@ -182,6 +182,12 @@ pub(crate) struct AppState {
     pub(crate) sync_with_source: bool,
     pub(crate) source_stamp: Option<FileStamp>,
     pub(crate) pending_source_stamp: Option<FileStamp>,
+
+    // Zoom & Pan state
+    pub(crate) zoom_level: f32,
+    pub(crate) zoom_pan_x: f32,
+    pub(crate) zoom_pan_y: f32,
+    pub(crate) selection_box: Option<(f32, f32, f32, f32)>,
 }
 
 impl AppState {
@@ -509,6 +515,11 @@ impl AppState {
             active_link_target: None,
             link_press_start: None,
             link_triggered: false,
+
+            zoom_level: 1.0,
+            zoom_pan_x: 0.0,
+            zoom_pan_y: 0.0,
+            selection_box: None,
         }
     }
 }

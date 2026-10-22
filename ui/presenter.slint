@@ -6,6 +6,7 @@ export enum ActiveTool {
     Highlighter,
     Eraser,
     Laser,
+    Select,
     Mic,
     AddPage,
     Undo,
@@ -732,6 +733,25 @@ export component PresenterWindow inherits Window {
     in-out property <bool> link_holding: false;
     in-out property <float> link_hold_progress: 0.0;
 
+    // Zoom & Pan Properties
+    in-out property <float> zoom_level: 1.0;
+    in-out property <float> zoom_pan_x: 0.0;
+    in-out property <float> zoom_pan_y: 0.0;
+    // Select & Zoom rubber-band (normalized screen coords within the page)
+    in-out property <bool> sel_dragging: false;
+    // Middle-mouse panning while zoomed
+    in-out property <bool> panning: false;
+    in-out property <float> pan_anchor_x: 0.0;
+    in-out property <float> pan_anchor_y: 0.0;
+    in-out property <float> pan_start_x: 0.5;
+    in-out property <float> pan_start_y: 0.5;
+    in-out property <float> sel_x0: 0.0;
+    in-out property <float> sel_y0: 0.0;
+    in-out property <float> sel_x1: 0.0;
+    in-out property <float> sel_y1: 0.0;
+
+    callback reset_zoom();
+    callback zoom_panned(float, float);
     callback play_media();
     callback pause_media();
     callback stop_media();
@@ -1023,6 +1043,15 @@ export component PresenterWindow inherits Window {
                 accept
             } else if ((event.text == "y" || (event.text == "z" && event.modifiers.shift)) && (event.modifiers.control || event.modifiers.meta)) {
                 root.redo();
+                accept
+            } else if ((event.text == "z" || event.text == "Z") && !event.modifiers.control && !event.modifiers.meta) {
+                if (root.zoom_level > 1.0) {
+                    root.zoom_level = 1.0;
+                    root.reset_zoom();
+                } else {
+                    root.current_tool = ActiveTool.Select;
+                    root.tool_selected(ActiveTool.Select);
+                }
                 accept
             } else {
                 reject
@@ -1894,7 +1923,33 @@ export component PresenterWindow inherits Window {
                         }
                     }
 
-                    // 6. Microphone (M)
+                    // 6. Select / Zoom Tool (Z)
+                    PresenterIconBtn {
+                        is_active: root.current_tool == ActiveTool.Select;
+                        tooltip_title: "Select & Zoom";
+                        shortcut: "Z";
+                        tooltip_hint: "Draw a box to zoom into that area";
+                        clicked => {
+                            root.current_tool = ActiveTool.Select;
+                            root.zoom_level = 1.0;
+                            root.tool_selected(ActiveTool.Select);
+                            root.show_pen_popover = false;
+                            root.show_highlighter_popover = false;
+                            root.show_eraser_popover = false;
+                            root.show_laser_popover = false;
+                            root.show_color_popover = false;
+                        }
+                        Image {
+                            source: @image-url("icons/select.svg");
+                            width: 22px;
+                            height: 22px;
+                            x: 8px;
+                            y: 8px;
+                            colorize: root.current_tool == ActiveTool.Select ? root.active_color : #ffffff;
+                        }
+                    }
+
+                    // 7. Microphone (M)
                     PresenterIconBtn {
                         is_active: root.current_tool == ActiveTool.Mic || root.is_recording;
                         tooltip_title: "Audio Presentation Notes";
@@ -2430,6 +2485,18 @@ export component PresenterWindow inherits Window {
                     drop-shadow-color: #00000088;
                     clip: true;
 
+                    // Effective zoom viewport (pan is the slide-space center; identity when not zoomed)
+                    property <float> zl: max(1.0, root.zoom_level);
+                    property <float> zpx: root.zoom_level > 1.0 ? root.zoom_pan_x : 0.5;
+                    property <float> zpy: root.zoom_level > 1.0 ? root.zoom_pan_y : 0.5;
+
+                    // Zoomable content layer: everything in slide space lives here
+                    zoom_layer := Rectangle {
+                    width: parent.width * paper_box.zl;
+                    height: parent.height * paper_box.zl;
+                    x: parent.width * (0.5 - paper_box.zpx * paper_box.zl);
+                    y: parent.height * (0.5 - paper_box.zpy * paper_box.zl);
+
                     // Rendered PDF Page
                     Image {
                         width: 100%;
@@ -2545,6 +2612,18 @@ export component PresenterWindow inherits Window {
                         border-color: #f43f5ecc;
                         background: #f43f5e26;
                     }
+                    } // end zoom_layer
+
+                    // Select & Zoom rubber-band rectangle (screen space)
+                    if root.current_tool == ActiveTool.Select && root.sel_dragging: Rectangle {
+                        x: min(root.sel_x0, root.sel_x1) * parent.width;
+                        y: min(root.sel_y0, root.sel_y1) * parent.height;
+                        width: abs(root.sel_x1 - root.sel_x0) * parent.width;
+                        height: abs(root.sel_y1 - root.sel_y0) * parent.height;
+                        border-width: 1.5px;
+                        border-color: #3b82f6;
+                        background: #3b82f633;
+                    }
 
                     // End of Slide Show Black Screen Overlay
                     if root.is_end_of_show: Rectangle {
@@ -2604,11 +2683,46 @@ export component PresenterWindow inherits Window {
                             MouseCursor.crosshair
                         );
                         pointer-event(event) => {
-                            let norm_x = max(0.0, min(1.0, (self.mouse-x / 1px) / (self.width / 1px)));
-                            let norm_y = max(0.0, min(1.0, (self.mouse-y / 1px) / (self.height / 1px)));
+                            let scr_x = max(0.0, min(1.0, (self.mouse-x / 1px) / (self.width / 1px)));
+                            let scr_y = max(0.0, min(1.0, (self.mouse-y / 1px) / (self.height / 1px)));
+                            // Map screen position to slide coordinates through the zoom viewport
+                            let norm_x = paper_box.zpx + (scr_x - 0.5) / paper_box.zl;
+                            let norm_y = paper_box.zpy + (scr_y - 0.5) / paper_box.zl;
+                            // Middle-mouse drag pans the zoomed slide (never reaches the drawing tools)
+                            if (event.button == PointerEventButton.middle && event.kind == PointerEventKind.down) {
+                                if (root.zoom_level > 1.0) {
+                                    root.panning = true;
+                                    root.pan_anchor_x = scr_x;
+                                    root.pan_anchor_y = scr_y;
+                                    root.pan_start_x = paper_box.zpx;
+                                    root.pan_start_y = paper_box.zpy;
+                                }
+                                return;
+                            }
+                            if (root.panning) {
+                                if (event.kind == PointerEventKind.move) {
+                                    let half = 0.5 / paper_box.zl;
+                                    root.zoom_pan_x = max(half, min(1.0 - half, root.pan_start_x - (scr_x - root.pan_anchor_x) / paper_box.zl));
+                                    root.zoom_pan_y = max(half, min(1.0 - half, root.pan_start_y - (scr_y - root.pan_anchor_y) / paper_box.zl));
+                                    root.zoom_panned(root.zoom_pan_x, root.zoom_pan_y);
+                                } else if (event.button == PointerEventButton.middle && (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel)) {
+                                    root.panning = false;
+                                }
+                                return;
+                            }
+                            if (event.button == PointerEventButton.middle) {
+                                return;
+                            }
                             root.laser_x = norm_x;
                             root.laser_y = norm_y;
                             if (event.kind == PointerEventKind.down) {
+                                if (root.current_tool == ActiveTool.Select) {
+                                    root.sel_x0 = scr_x;
+                                    root.sel_y0 = scr_y;
+                                    root.sel_x1 = scr_x;
+                                    root.sel_y1 = scr_y;
+                                    root.sel_dragging = true;
+                                }
                                 root.show_color_popover = false;
                                 root.show_pen_popover = false;
                                 root.show_highlighter_popover = false;
@@ -2622,12 +2736,19 @@ export component PresenterWindow inherits Window {
                                 if (root.current_tool == ActiveTool.Laser) {
                                     root.laser_active = false;
                                 }
+                                root.sel_dragging = false;
                                 root.canvas_pointer_up();
                             }
                         }
                         moved => {
-                            let norm_x = max(0.0, min(1.0, (self.mouse-x / 1px) / (self.width / 1px)));
-                            let norm_y = max(0.0, min(1.0, (self.mouse-y / 1px) / (self.height / 1px)));
+                            let scr_x = max(0.0, min(1.0, (self.mouse-x / 1px) / (self.width / 1px)));
+                            let scr_y = max(0.0, min(1.0, (self.mouse-y / 1px) / (self.height / 1px)));
+                            let norm_x = paper_box.zpx + (scr_x - 0.5) / paper_box.zl;
+                            let norm_y = paper_box.zpy + (scr_y - 0.5) / paper_box.zl;
+                            if (root.sel_dragging) {
+                                root.sel_x1 = scr_x;
+                                root.sel_y1 = scr_y;
+                            }
                             root.laser_x = norm_x;
                             root.laser_y = norm_y;
                             root.canvas_pointer_move(norm_x, norm_y, self.pressed ? 1.0 : 0.0);
@@ -2757,38 +2878,6 @@ export component PresenterWindow inherits Window {
                             border-bottom-left-radius: 17px;
                             border-bottom-right-radius: (root.link_hold_progress >= 0.95 ? 17px : 0px);
                             background: #38bdf8;
-                        }
-                    }
-                }
-
-
-
-                // BOTTOM RIGHT FLOATING QUICK ZOOM / CONTROLS (from Presenter screenshot)
-                Rectangle {
-                    width: 38px;
-                    height: 38px;
-                    x: parent.width - 54px;
-                    y: parent.height - 54px;
-                    border-radius: 19px;
-                    background: #202023;
-                    border-width: 1px;
-                    border-color: #2e2e34;
-
-                    Text {
-                        text: "🔍";
-                        font-size: 15px;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-                    TouchArea {
-                        clicked => {
-                            // Cycle quality / zoom
-                            if (root.render_quality == "Ultra Vector (600 DPI)") {
-                                root.render_quality = "Balanced (300 DPI)";
-                            } else {
-                                root.render_quality = "Ultra Vector (600 DPI)";
-                            }
-                            root.quality_changed(root.render_quality);
                         }
                     }
                 }
@@ -7451,6 +7540,11 @@ export component AudienceWindow inherits Window {
     in-out property <float> media_rect_w: 0.70;
     in-out property <float> media_rect_h: 0.50;
 
+    // Zoom & Pan (mirrors the presenter's Select & Zoom viewport)
+    in-out property <float> zoom_level: 1.0;
+    in-out property <float> zoom_pan_x: 0.0;
+    in-out property <float> zoom_pan_y: 0.0;
+
     // Pointer input on the audience slide, handled exactly like the presenter canvas
     callback canvas_pointer_down(float, float, float);
     callback canvas_pointer_move(float, float, float);
@@ -7477,6 +7571,17 @@ export component AudienceWindow inherits Window {
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             clip: true;
+
+            property <float> zl: max(1.0, root.zoom_level);
+            property <float> zpx: root.zoom_level > 1.0 ? root.zoom_pan_x : 0.5;
+            property <float> zpy: root.zoom_level > 1.0 ? root.zoom_pan_y : 0.5;
+
+            // Zoomable content layer: everything in slide space lives here
+            Rectangle {
+            width: parent.width * parent.zl;
+            height: parent.height * parent.zl;
+            x: parent.width * (0.5 - parent.zpx * parent.zl);
+            y: parent.height * (0.5 - parent.zpy * parent.zl);
 
             Image {
                 width: 100%;
@@ -7586,6 +7691,7 @@ export component AudienceWindow inherits Window {
                     background: #ffffff;
                 }
             }
+            } // end zoom layer
         }
 
         // Projector Blankout / Whiteout Blanking Layer
