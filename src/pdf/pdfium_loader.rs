@@ -175,11 +175,10 @@ impl PdfiumLoader {
             if let Some(note_p_idx) = m.note_page_idx {
                 let note_text = &page_texts[note_p_idx];
                 let cleaned = BeamerMetadata::clean_beamer_note_text(note_text);
+                // The companion .tex note is the same text without PDF extraction artifacts
+                // (math comes out mangled), so the note page only fills in when it is missing.
                 if extracted_notes.is_empty() {
                     extracted_notes = cleaned;
-                } else if !cleaned.is_empty() && !extracted_notes.contains(&cleaned) {
-                    extracted_notes.push_str("\n\n");
-                    extracted_notes.push_str(&cleaned);
                 }
             }
 

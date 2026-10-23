@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+use super::shape_fit;
 use super::stroke::Point;
 use std::f32::consts::PI;
 
@@ -20,6 +21,10 @@ pub enum ShapeKind {
     Star,
     Heart,
     Arc,
+    Parallelogram,
+    Trapezoid,
+    /// Any other polygon (irregular quadrilateral, or a 7/8-gon).
+    Polygon,
 }
 
 #[derive(Clone, Debug)]
@@ -31,13 +36,29 @@ pub struct RecognizedShape {
 pub struct ShapeRecognizer;
 
 impl ShapeRecognizer {
-    /// Attempts to recognize a freehand stroke as a regular geometric shape.
-    /// Returns the canonical regularized points for the recognized shape if a match is found.
+    /// Attempts to recognize a freehand stroke as a regular geometric shape, assuming
+    /// x and y share the same scale. Prefer `recognize_with_aspect` for slide coordinates.
     pub fn recognize(raw_points: &[Point], is_highlighter: bool) -> Option<RecognizedShape> {
+        Self::recognize_with_aspect(raw_points, is_highlighter, 1.0)
+    }
+
+    /// Recognizes a stroke given in normalized slide coordinates (0..1 on both axes).
+    /// `aspect` is the slide's width / height; it is used to fit shapes in true proportions,
+    /// so a visually square box is a square and a round circle is a circle.
+    pub fn recognize_with_aspect(raw_points: &[Point], is_highlighter: bool, aspect: f32) -> Option<RecognizedShape> {
         if raw_points.len() < 3 {
             return None;
         }
+        let aspect = if aspect.is_finite() && aspect > 0.0 { aspect } else { 1.0 };
+        let metric: Vec<Point> = raw_points.iter().map(|p| Point { x: p.x * aspect, ..*p }).collect();
+        let mut shape = Self::recognize_metric(&metric, is_highlighter)?;
+        for p in &mut shape.points {
+            p.x /= aspect;
+        }
+        Some(shape)
+    }
 
+    fn recognize_metric(raw_points: &[Point], is_highlighter: bool) -> Option<RecognizedShape> {
         // 1. Highlighter priority: check if it should straighten as a horizontal/straight highlight
         if is_highlighter {
             if let Some(shape) = Self::recognize_straight_line(raw_points, 0.08, 1.45, true) {
@@ -57,39 +78,12 @@ impl ShapeRecognizer {
 
         // 4. Closed Shapes
         if Self::is_closed_loop(raw_points) {
-            // 4a. Star (5-pointed star with deep alternating peaks & valleys)
-            if let Some(star) = Self::recognize_star(raw_points) {
-                return Some(star);
-            }
-
-            // 4b. Heart (cardioid cleft + lobes + bottom tip)
-            if let Some(heart) = Self::recognize_heart(raw_points) {
-                return Some(heart);
-            }
-
-            // 4c. Diamond / Rhombus (4 straight edges connecting edge midpoints)
-            if let Some(diamond) = Self::recognize_diamond(raw_points) {
-                return Some(diamond);
-            }
-
-            // 4d. Rectangle / Square (4 corners near bounding box corners)
-            if let Some(rect) = Self::recognize_rectangle(raw_points) {
-                return Some(rect);
-            }
-
-            // 4e. Circle / Ellipse (smooth low-variance radial curve)
-            if let Some(ellipse) = Self::recognize_ellipse_or_circle(raw_points) {
-                return Some(ellipse);
-            }
-
-            // 4f. Triangle (3 prominent corners)
-            if let Some(tri) = Self::recognize_triangle(raw_points) {
-                return Some(tri);
-            }
-
-            // 4g. Regular Polygons: Pentagon (5 corners) & Hexagon (6 corners)
-            if let Some(poly) = Self::recognize_regular_polygon(raw_points) {
-                return Some(poly);
+            // 4a. Star and heart come from dedicated detectors, then compete with the
+            //     ellipse / polygon fits on the same score.
+            let templates: Vec<RecognizedShape> =
+                [Self::recognize_star(raw_points), Self::recognize_heart(raw_points)].into_iter().flatten().collect();
+            if let Some(shape) = shape_fit::fit_closed(raw_points, &templates) {
+                return Some(shape);
             }
         }
 
@@ -351,185 +345,6 @@ impl ShapeRecognizer {
         None
     }
 
-    /// Helper to test if 4 corners correspond to diamond edge midpoints
-    fn is_diamond_corners(corners: &[Point], min_x: f32, min_y: f32, max_x: f32, max_y: f32) -> bool {
-        let cx = (min_x + max_x) * 0.5;
-        let cy = (min_y + max_y) * 0.5;
-        let w = max_x - min_x;
-        let h = max_y - min_y;
-
-        let midpoints = [(cx, min_y), (max_x, cy), (cx, max_y), (min_x, cy)];
-        let mut matched = 0;
-        for c in corners {
-            for m in &midpoints {
-                let d = ((c.x - m.0).powi(2) + (c.y - m.1).powi(2)).sqrt();
-                if d < 0.16 * w.max(h) {
-                    matched += 1;
-                    break;
-                }
-            }
-        }
-        matched >= 3
-    }
-
-    /// Recognizes Diamond / Rhombus (4 corners at midpoint of bounding box)
-    fn recognize_diamond(points: &[Point]) -> Option<RecognizedShape> {
-        let (min_x, min_y, max_x, max_y) = Self::bounding_box(points);
-        let w = max_x - min_x;
-        let h = max_y - min_y;
-        let diag = (w * w + h * h).sqrt();
-
-        if w < 0.03 || h < 0.03 {
-            return None;
-        }
-
-        let simplified = Self::ramer_douglas_peucker(points, 0.045 * diag);
-        // Diamond must have 4 corners (5 points including closed vertex)
-        if simplified.len() != 5 {
-            return None;
-        }
-
-        let cx = (min_x + max_x) * 0.5;
-        let cy = (min_y + max_y) * 0.5;
-        let scale = w.max(h);
-
-        // Check that corners are near the diamond midpoints and NOT the rectangle corners
-        if !Self::is_diamond_corners(&simplified[0..4], min_x, min_y, max_x, max_y) {
-            return None;
-        }
-
-        let top = (cx, min_y);
-        let right = (max_x, cy);
-        let bottom = (cx, max_y);
-        let left = (min_x, cy);
-
-        // Check straightness: every stroke point must be close to at least one of the 4 diamond edges
-        let diamond_corners = [top, right, bottom, left];
-        let mut far_count = 0;
-        for p in points {
-            let mut min_edge_d = f32::MAX;
-            for k in 0..4 {
-                let p_a = diamond_corners[k];
-                let p_b = diamond_corners[(k + 1) % 4];
-                let d = Self::distance_to_segment(p.x, p.y, p_a.0, p_a.1, p_b.0, p_b.1);
-                if d < min_edge_d {
-                    min_edge_d = d;
-                }
-            }
-            if min_edge_d > 0.07 * scale {
-                far_count += 1;
-            }
-        }
-        if far_count as f32 / points.len() as f32 > 0.15 {
-            return None; // Too many points bulge away from diamond edges (e.g. circle)
-        }
-
-        let avg_p = points.iter().map(|p| p.pressure).sum::<f32>() / points.len() as f32;
-        let t0 = points[0].timestamp_ms;
-        let diamond_pts = vec![
-            Point::new(top.0, top.1, avg_p, t0),
-            Point::new(right.0, right.1, avg_p, t0 + 10),
-            Point::new(bottom.0, bottom.1, avg_p, t0 + 20),
-            Point::new(left.0, left.1, avg_p, t0 + 30),
-            Point::new(top.0, top.1, avg_p, t0 + 40),
-        ];
-        Some(RecognizedShape {
-            kind: ShapeKind::Diamond,
-            points: diamond_pts,
-        })
-    }
-
-    /// Recognizes Rectangle or Square
-    fn recognize_rectangle(points: &[Point]) -> Option<RecognizedShape> {
-        let (min_x, min_y, max_x, max_y) = Self::bounding_box(points);
-        let w = max_x - min_x;
-        let h = max_y - min_y;
-        let diag = (w * w + h * h).sqrt();
-
-        if w < 0.03 || h < 0.03 {
-            return None;
-        }
-
-        let rect_perimeter = 2.0 * (w + h);
-        let actual_len = Self::path_length(points);
-
-        // Path length within 35% of perimeter
-        if (actual_len - rect_perimeter).abs() / rect_perimeter > 0.35 {
-            return None;
-        }
-
-        // A rectangle MUST have stroke points near at least 3 of the 4 bounding box corners.
-        // Circles, ellipses, and diamonds do not reach into bounding box corners.
-        let scale = w.max(h);
-        let box_corners = [
-            (min_x, min_y),
-            (max_x, min_y),
-            (max_x, max_y),
-            (min_x, max_y),
-        ];
-        let mut corners_reached = 0;
-        for c in &box_corners {
-            if points.iter().any(|p| ((p.x - c.0).powi(2) + (p.y - c.1).powi(2)).sqrt() < 0.16 * scale) {
-                corners_reached += 1;
-            }
-        }
-        if corners_reached < 3 {
-            return None;
-        }
-
-        // Check if RDP simplified corners match a 4-corner polygon (not diamond)
-        let simplified = Self::ramer_douglas_peucker(points, 0.045 * diag);
-        let has_4_corners = simplified.len() == 5 && !Self::is_diamond_corners(&simplified[0..4], min_x, min_y, max_x, max_y);
-
-        // Check that points stay near the 4 sides
-        let mut outside_count = 0;
-        let tolerance = 0.12 * scale;
-
-        for p in points {
-            let d_left = (p.x - min_x).abs();
-            let d_right = (p.x - max_x).abs();
-            let d_top = (p.y - min_y).abs();
-            let d_bottom = (p.y - max_y).abs();
-            let min_d = d_left.min(d_right).min(d_top).min(d_bottom);
-            if min_d > tolerance {
-                outside_count += 1;
-            }
-        }
-
-        let point_match = (outside_count as f32 / points.len() as f32) < 0.32;
-
-        if has_4_corners || point_match {
-            let is_square = (w - h).abs() / w.max(h) < 0.18;
-            let (final_min_x, final_min_y, final_max_x, final_max_y) = if is_square {
-                let s = (w + h) * 0.5;
-                let cx = (min_x + max_x) * 0.5;
-                let cy = (min_y + max_y) * 0.5;
-                (cx - s * 0.5, cy - s * 0.5, cx + s * 0.5, cy + s * 0.5)
-            } else {
-                (min_x, min_y, max_x, max_y)
-            };
-
-            let avg_p = points.iter().map(|p| p.pressure).sum::<f32>() / points.len() as f32;
-            let t0 = points[0].timestamp_ms;
-
-            // Generate clean 5-point closed polygon (4 corners + closing vertex)
-            let corners = vec![
-                Point::new(final_min_x, final_min_y, avg_p, t0),
-                Point::new(final_max_x, final_min_y, avg_p, t0 + 10),
-                Point::new(final_max_x, final_max_y, avg_p, t0 + 20),
-                Point::new(final_min_x, final_max_y, avg_p, t0 + 30),
-                Point::new(final_min_x, final_min_y, avg_p, t0 + 40),
-            ];
-
-            return Some(RecognizedShape {
-                kind: if is_square { ShapeKind::Square } else { ShapeKind::Rectangle },
-                points: corners,
-            });
-        }
-
-        None
-    }
-
     /// Recognizes 5-Pointed Star
     fn recognize_star(points: &[Point]) -> Option<RecognizedShape> {
         let (min_x, min_y, max_x, max_y) = Self::bounding_box(points);
@@ -636,7 +451,8 @@ impl ShapeRecognizer {
                 let y_raw = -(13.0 * t.cos() - 5.0 * (2.0 * t).cos() - 2.0 * (3.0 * t).cos() - (4.0 * t).cos());
 
                 let norm_x = cx + (x_raw / 32.0) * w;
-                let norm_y = min_y + ((y_raw + 17.0) / 33.0) * h;
+                // y_raw spans [-11.923, 17.0] (lobe tops to bottom tip); map that onto the drawn box.
+                let norm_y = min_y + ((y_raw + 11.923) / 28.923) * h;
                 heart_pts.push(Point::new(norm_x, norm_y, avg_p, t0 + (i as u64 * 10)));
             }
 
@@ -645,137 +461,6 @@ impl ShapeRecognizer {
                 points: heart_pts,
             });
         }
-        None
-    }
-
-    /// Recognizes Circle or Ellipse
-    fn recognize_ellipse_or_circle(points: &[Point]) -> Option<RecognizedShape> {
-        let (min_x, min_y, max_x, max_y) = Self::bounding_box(points);
-        let w = max_x - min_x;
-        let h = max_y - min_y;
-
-        if w < 0.03 || h < 0.03 {
-            return None;
-        }
-
-        // Center computed from average of points (more robust than bounding box center)
-        let cx = points.iter().map(|p| p.x).sum::<f32>() / points.len() as f32;
-        let cy = points.iter().map(|p| p.y).sum::<f32>() / points.len() as f32;
-        let a = w * 0.5;
-        let b = h * 0.5;
-
-        // Compute error of normalized radial distances: ((x-cx)/a)^2 + ((y-cy)/b)^2 ≈ 1
-        let mut variance = 0.0f32;
-        for p in points {
-            let nx = (p.x - cx) / a;
-            let ny = (p.y - cy) / b;
-            let norm_r = (nx * nx + ny * ny).sqrt();
-            let err = (norm_r - 1.0).abs();
-            variance += err * err;
-        }
-        let mse = variance / points.len() as f32;
-
-        if mse < 0.032 {
-            let is_circle = (w - h).abs() / w.max(h) < 0.22;
-            let (final_a, final_b) = if is_circle {
-                let r = (a + b) * 0.5;
-                (r, r)
-            } else {
-                (a, b)
-            };
-
-            // Generate 36 smooth points forming the perfect circle/ellipse
-            let num_pts = 36;
-            let mut result_pts = Vec::with_capacity(num_pts + 1);
-            let avg_p = points.iter().map(|p| p.pressure).sum::<f32>() / points.len() as f32;
-            let t0 = points[0].timestamp_ms;
-
-            for i in 0..=num_pts {
-                let angle = (i as f32 / num_pts as f32) * 2.0 * PI;
-                let px = cx + final_a * angle.cos();
-                let py = cy + final_b * angle.sin();
-                result_pts.push(Point::new(px, py, avg_p, t0 + (i as u64 * 10)));
-            }
-
-            return Some(RecognizedShape {
-                kind: if is_circle { ShapeKind::Circle } else { ShapeKind::Ellipse },
-                points: result_pts,
-            });
-        }
-
-        None
-    }
-
-    /// Recognizes Regular Polygon: Pentagon (5 sides) or Hexagon (6 sides)
-    fn recognize_regular_polygon(points: &[Point]) -> Option<RecognizedShape> {
-        let (min_x, min_y, max_x, max_y) = Self::bounding_box(points);
-        let w = max_x - min_x;
-        let h = max_y - min_y;
-        let diag = (w * w + h * h).sqrt();
-
-        if w < 0.04 || h < 0.04 {
-            return None;
-        }
-
-        let simplified = Self::ramer_douglas_peucker(points, 0.045 * diag);
-        let num_corners = simplified.len().saturating_sub(1);
-
-        if num_corners == 5 || num_corners == 6 {
-            let cx = (min_x + max_x) * 0.5;
-            let cy = (min_y + max_y) * 0.5;
-            let r = (w.max(h) * 0.5).max(0.02);
-            let avg_p = points.iter().map(|p| p.pressure).sum::<f32>() / points.len() as f32;
-            let t0 = points[0].timestamp_ms;
-
-            let n = num_corners;
-            let mut poly_pts = Vec::with_capacity(n + 1);
-            let start_angle = -std::f32::consts::FRAC_PI_2;
-
-            for i in 0..=n {
-                let angle = start_angle + (i as f32 * 2.0 * PI / n as f32);
-                poly_pts.push(Point::new(cx + r * angle.cos(), cy + r * angle.sin(), avg_p, t0 + (i as u64 * 10)));
-            }
-
-            return Some(RecognizedShape {
-                kind: if n == 5 { ShapeKind::Pentagon } else { ShapeKind::Hexagon },
-                points: poly_pts,
-            });
-        }
-        None
-    }
-
-    /// Recognizes Triangle
-    fn recognize_triangle(points: &[Point]) -> Option<RecognizedShape> {
-        let (min_x, min_y, max_x, max_y) = Self::bounding_box(points);
-        let w = max_x - min_x;
-        let h = max_y - min_y;
-
-        if w < 0.04 || h < 0.04 {
-            return None;
-        }
-
-        let simplified = Self::ramer_douglas_peucker(points, 0.05 * (w * w + h * h).sqrt());
-        if simplified.len() == 4 {
-            let avg_p = points.iter().map(|p| p.pressure).sum::<f32>() / points.len() as f32;
-            let t0 = points[0].timestamp_ms;
-
-            let mut tri_pts = Vec::with_capacity(4);
-            for (idx, p) in simplified.iter().take(3).enumerate() {
-                tri_pts.push(Point::new(p.x, p.y, avg_p, t0 + (idx as u64 * 10)));
-            }
-            let first = tri_pts[0];
-            tri_pts.push(first);
-
-            // Area must be non-trivial
-            let area = 0.5 * ((tri_pts[1].x - tri_pts[0].x) * (tri_pts[2].y - tri_pts[0].y) - (tri_pts[2].x - tri_pts[0].x) * (tri_pts[1].y - tri_pts[0].y)).abs();
-            if area > 0.001 {
-                return Some(RecognizedShape {
-                    kind: ShapeKind::Triangle,
-                    points: tri_pts,
-                });
-            }
-        }
-
         None
     }
 

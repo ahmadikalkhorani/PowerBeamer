@@ -119,9 +119,10 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
             }
 
             // Auto shape recognition: snap to regular shape while pointer is held down!
+            let aspect = st.deck.current_slide().aspect_ratio;
             if let Some(stroke) = st.active_stroke.as_mut() {
                 if stroke.points.len() >= 3 {
-                    if let Some(recognized) = ink::ShapeRecognizer::recognize(&stroke.points, stroke.is_highlighter) {
+                    if let Some(recognized) = ink::ShapeRecognizer::recognize_with_aspect(&stroke.points, stroke.is_highlighter, aspect) {
                         println!("Auto Shape recognized while holding: {:?}", recognized.kind);
                         stroke.points = recognized.points;
                         stroke.is_shape = true;
@@ -481,9 +482,10 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
             let should_snap = !st.is_shape_snapped && st.auto_shape_enabled && elapsed_ms >= st.hold_delay_ms;
 
             if should_snap {
+                let aspect = st.deck.current_slide().aspect_ratio;
                 if let Some(stroke) = st.active_stroke.as_mut() {
                     if stroke.points.len() >= 3 {
-                        if let Some(recognized) = ink::ShapeRecognizer::recognize(&stroke.points, stroke.is_highlighter) {
+                        if let Some(recognized) = ink::ShapeRecognizer::recognize_with_aspect(&stroke.points, stroke.is_highlighter, aspect) {
                             stroke.points = recognized.points;
                             stroke.is_shape = true;
                             stroke.recompute_bounding_box();
