@@ -136,7 +136,7 @@
         "title": "Slide 1",
         "notes": "PRESENTER NOTES (Slide 1):\n• Welcome to the interactive PowerBeamer tutorial deck!\n• Notice how this note displays in the presenter window without appearing on the audience screen.\n• Press L to activate the laser pointer and practice guiding attention.\n• Use the left/right arrow keys or spacebar to advance slides.",
         "is_dual_screen": false,
-        "aspect_ratio": 1.7787194,
+        "aspect_ratio": 1.3336276,
         "has_notes_image": true,
         "audience_img": "beamer_notes_slide_aud_1.png",
         "presenter_img": "beamer_notes_slide_pres_1.png",
@@ -152,7 +152,7 @@
         "title": "Slide 2",
         "notes": "SPEAKER NOTES (Slide 2):\n• Switch to the Pen tool (P) and circle the regularization term $\\frac{\\lambda{2\\|\\theta\\|_2^2$.\n• Try changing ink colors using the color palette in the top bar.\n• Press Cmd+Z / Ctrl+Z to test multi-level undo.\n• Press N or + to spawn a blank whiteboard whenever you need extra writing space!",
         "is_dual_screen": false,
-        "aspect_ratio": 1.7787194,
+        "aspect_ratio": 1.3336276,
         "has_notes_image": true,
         "audience_img": "beamer_notes_slide_aud_2.png",
         "presenter_img": "beamer_notes_slide_pres_2.png",
@@ -168,7 +168,7 @@
         "title": "Slide 3",
         "notes": "SPEAKER NOTES (Slide 3):\n• Click the audio box above to verify media playback through your speakers.\n• PowerBeamer extracts media clips defined with LaTeX \\texttt{\\textbackslash movie automatically.\n• Check the audio volume and mute controls in the presenter controls toolbar.",
         "is_dual_screen": false,
-        "aspect_ratio": 1.7787194,
+        "aspect_ratio": 1.3336276,
         "has_notes_image": true,
         "audience_img": "beamer_notes_slide_aud_3.png",
         "presenter_img": "beamer_notes_slide_pres_3.png",
@@ -179,10 +179,10 @@
             "display_path": "sample_audio.mp3",
             "is_resolved": true,
             "rect": [
-              0.12843324,
-              0.4145415,
-              0.74313575,
-              0.16928636
+              0.12929018,
+              0.36735559,
+              0.7414197,
+              0.22460549
             ]
           }
         ]
@@ -196,7 +196,7 @@
         "title": "Slide 4",
         "notes": "SPEAKER NOTES (Slide 4):\n• Click on the video container to start playback.\n• Note the hardware-accelerated decode with zero frame dropping.\n• You can seek along the timeline scrub bar at the bottom.\n• Audience and presenter screens stay perfectly synchronized.",
         "is_dual_screen": false,
-        "aspect_ratio": 1.7787194,
+        "aspect_ratio": 1.3336276,
         "has_notes_image": true,
         "audience_img": "beamer_notes_slide_aud_4.png",
         "presenter_img": "beamer_notes_slide_pres_4.png",
@@ -207,10 +207,10 @@
             "display_path": "sample_video.mp4",
             "is_resolved": true,
             "rect": [
-              0.2343747,
-              0.34780768,
-              0.5312506,
-              0.5311111
+              0.16796891,
+              0.38094488,
+              0.6640622,
+              0.4979164
             ]
           }
         ]
@@ -224,7 +224,7 @@
         "title": "Slide 5",
         "notes": "SPEAKER NOTES (Slide 5):\n• The selected clip is outlined in red on the presenter screen.\n• Switching clips stops the current one and resets the timeline.",
         "is_dual_screen": false,
-        "aspect_ratio": 1.7787194,
+        "aspect_ratio": 1.3336276,
         "has_notes_image": true,
         "audience_img": "beamer_notes_slide_aud_5.png",
         "presenter_img": "beamer_notes_slide_pres_5.png",
@@ -235,10 +235,10 @@
             "display_path": "sample_video.mp4",
             "is_resolved": true,
             "rect": [
-              0.10625012,
-              0.42336488,
-              0.37500086,
-              0.37500295
+              0.26562488,
+              0.33838,
+              0.4687503,
+              0.35156143
             ]
           },
           {
@@ -246,10 +246,10 @@
             "display_path": "sample_video_2.mp4",
             "is_resolved": true,
             "rect": [
-              0.51875126,
-              0.42336488,
-              0.37499863,
-              0.37500295
+              0.26562488,
+              0.6936052,
+              0.4687503,
+              0.30639482
             ]
           }
         ]
@@ -263,7 +263,7 @@
         "title": "Slide 6",
         "notes": "SPEAKER NOTES (Slide 6):\n• Press play for the narration, then switch to Clip 2/2 for the video.",
         "is_dual_screen": false,
-        "aspect_ratio": 1.7787194,
+        "aspect_ratio": 1.3336276,
         "has_notes_image": true,
         "audience_img": "beamer_notes_slide_aud_6.png",
         "presenter_img": "beamer_notes_slide_pres_6.png",
@@ -274,10 +274,10 @@
             "display_path": "sample_audio.mp3",
             "is_resolved": true,
             "rect": [
-              0.19982229,
-              0.38266605,
-              0.6003576,
-              0.091847666
+              0.19977677,
+              0.38374874,
+              0.6004437,
+              0.086107135
             ]
           },
           {
@@ -285,10 +285,10 @@
             "display_path": "sample_video_2.mp4",
             "is_resolved": true,
             "rect": [
-              0.32812545,
-              0.50407654,
-              0.3437491,
-              0.3433313
+              0.28515717,
+              0.497571,
+              0.42968568,
+              0.32187665
             ]
           }
         ]
@@ -302,7 +302,7 @@
         "title": "Slide 7",
         "notes": "SPEAKER NOTES (Slide 7):\n• Wrap up the tutorial walkthrough.\n• Press T to view the slide thumbnail grid and rearrange or navigate between slides.\n• Test saving the annotated PDF from the top action menu.",
         "is_dual_screen": false,
-        "aspect_ratio": 1.7787194,
+        "aspect_ratio": 1.3336276,
         "has_notes_image": true,
         "audience_img": "beamer_notes_slide_aud_7.png",
         "presenter_img": "beamer_notes_slide_pres_7.png",
