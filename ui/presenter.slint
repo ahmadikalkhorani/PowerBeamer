@@ -897,161 +897,171 @@ export component PresenterWindow inherits Window {
 
     forward-focus: key-handler;
 
+    // Keyboard shortcuts, shared by the presenter and audience windows (returns true if handled)
+    public function handle_key(text: string, ctrl: bool, meta: bool, shift: bool) -> bool {
+        if (text == Key.Escape) {
+            if (root.show_toc_drawer) {
+                root.show_toc_drawer = false;
+                return true;
+            } else if (root.show_updates_modal) {
+                root.show_updates_modal = false;
+                return true;
+            } else if (root.show_insert_page_modal) {
+                root.show_insert_page_modal = false;
+                return true;
+            } else if (root.show_timer_menu) {
+                root.show_timer_menu = false;
+                return true;
+            } else if (root.show_quality_menu) {
+                root.show_quality_menu = false;
+                return true;
+            } else if (root.show_laser_popover) {
+                root.show_laser_popover = false;
+                return true;
+            } else if (root.show_eraser_popover) {
+                root.show_eraser_popover = false;
+                return true;
+            } else if (root.show_highlighter_popover) {
+                root.show_highlighter_popover = false;
+                return true;
+            } else if (root.show_pen_popover) {
+                root.show_pen_popover = false;
+                return true;
+            } else if (root.show_color_popover) {
+                root.show_color_popover = false;
+                return true;
+            } else if (root.show_thumbnails) {
+                root.show_thumbnails = false;
+                return true;
+            } else if (root.media_playing || root.media_video_visible) {
+                root.stop_media();
+                return true;
+            } else if (root.is_end_of_show) {
+                root.prev_slide();
+                return true;
+            } else {
+                return false;
+            }
+        } else if (text == "b" || text == "B") {
+            root.toggle_blackout();
+            return true;
+        } else if (text == "w" || text == "W") {
+            root.toggle_whiteout();
+            return true;
+        } else if (text == "s" || text == "S") {
+            root.swap_screens();
+            return true;
+        } else if (text == "j" || text == "J") {
+            root.next_frame();
+            return true;
+        } else if (text == "k" || text == "K") {
+            root.prev_frame();
+            return true;
+        } else if (text == "o" || text == "O") {
+            root.toggle_toc();
+            return true;
+        } else if (text == "l" || text == "L") {
+            root.current_tool = ActiveTool.Laser;
+            root.laser_color = root.active_color;
+            root.tool_selected(ActiveTool.Laser);
+            root.show_laser_popover = false;
+            root.show_eraser_popover = false;
+            root.show_pen_popover = false;
+            root.show_highlighter_popover = false;
+            root.show_color_popover = false;
+            return true;
+        } else if (text == "p" || text == "P") {
+            root.current_tool = ActiveTool.Pen;
+            root.tool_selected(ActiveTool.Pen);
+            root.show_pen_popover = false;
+            root.show_highlighter_popover = false;
+            root.show_eraser_popover = false;
+            root.show_laser_popover = false;
+            root.show_color_popover = false;
+            return true;
+        } else if (text == "h" || text == "H") {
+            root.current_tool = ActiveTool.Highlighter;
+            root.tool_selected(ActiveTool.Highlighter);
+            root.show_pen_popover = false;
+            root.show_highlighter_popover = false;
+            root.show_eraser_popover = false;
+            root.show_laser_popover = false;
+            root.show_color_popover = false;
+            return true;
+        } else if (text == "e" || text == "E") {
+            root.current_tool = ActiveTool.Eraser;
+            root.tool_selected(ActiveTool.Eraser);
+            root.show_pen_popover = false;
+            root.show_highlighter_popover = false;
+            root.show_eraser_popover = false;
+            root.show_laser_popover = false;
+            root.show_color_popover = false;
+            return true;
+
+        } else if (text == "t" || text == "T") {
+            root.show_thumbnails = !root.show_thumbnails;
+            return true;
+        } else if (text == "m" || text == "M") {
+            root.toggle_media_playback();
+            return true;
+        } else if (text == "1") {
+            root.active_color_slot = 0;
+            root.active_color = root.color_slot_1;
+            root.color_changed(root.color_slot_1);
+            return true;
+        } else if (text == "2") {
+            root.active_color_slot = 1;
+            root.active_color = root.color_slot_2;
+            root.color_changed(root.color_slot_2);
+            return true;
+        } else if (text == "3") {
+            root.active_color_slot = 2;
+            root.active_color = root.color_slot_3;
+            root.color_changed(root.color_slot_3);
+            return true;
+        } else if (text == "4") {
+            root.active_color_slot = 3;
+            root.active_color = root.color_slot_4;
+            root.color_changed(root.color_slot_4);
+            return true;
+        } else if (text == "5") {
+            root.active_color_slot = 4;
+            root.active_color = root.color_slot_5;
+            root.color_changed(root.color_slot_5);
+            return true;
+        } else if (text == " " || text == Key.RightArrow || text == Key.DownArrow || text == Key.PageDown || text == Key.Return || text == "Right" || text == "Down" || text == "PageDown" || text == "Return") {
+            root.next_slide();
+            return true;
+        } else if (text == Key.LeftArrow || text == Key.UpArrow || text == Key.PageUp || text == Key.Backspace || text == "Left" || text == "Up" || text == "PageUp" || text == "Backspace") {
+            root.prev_slide();
+            return true;
+        } else if (text == "n" || text == "N" || text == "+") {
+            root.add_whiteboard_page();
+            return true;
+        } else if (text == "z" && (ctrl || meta) && !shift) {
+            root.undo();
+            return true;
+        } else if ((text == "y" || (text == "z" && shift)) && (ctrl || meta)) {
+            root.redo();
+            return true;
+        } else if ((text == "z" || text == "Z") && !ctrl && !meta) {
+            if (root.zoom_level > 1.0) {
+                root.zoom_level = 1.0;
+                root.reset_zoom();
+            } else {
+                root.current_tool = ActiveTool.Select;
+                root.tool_selected(ActiveTool.Select);
+            }
+            return true;
+        } else {
+            return false;
+        }
+        return false;
+    }
+
     key-handler := FocusScope {
         key-pressed(event) => {
-            if (event.text == Key.Escape) {
-                if (root.show_toc_drawer) {
-                    root.show_toc_drawer = false;
-                    accept
-                } else if (root.show_updates_modal) {
-                    root.show_updates_modal = false;
-                    accept
-                } else if (root.show_insert_page_modal) {
-                    root.show_insert_page_modal = false;
-                    accept
-                } else if (root.show_timer_menu) {
-                    root.show_timer_menu = false;
-                    accept
-                } else if (root.show_quality_menu) {
-                    root.show_quality_menu = false;
-                    accept
-                } else if (root.show_laser_popover) {
-                    root.show_laser_popover = false;
-                    accept
-                } else if (root.show_eraser_popover) {
-                    root.show_eraser_popover = false;
-                    accept
-                } else if (root.show_highlighter_popover) {
-                    root.show_highlighter_popover = false;
-                    accept
-                } else if (root.show_pen_popover) {
-                    root.show_pen_popover = false;
-                    accept
-                } else if (root.show_color_popover) {
-                    root.show_color_popover = false;
-                    accept
-                } else if (root.show_thumbnails) {
-                    root.show_thumbnails = false;
-                    accept
-                } else if (root.media_playing || root.media_video_visible) {
-                    root.stop_media();
-                    accept
-                } else if (root.is_end_of_show) {
-                    root.prev_slide();
-                    accept
-                } else {
-                    reject
-                }
-            } else if (event.text == "b" || event.text == "B") {
-                root.toggle_blackout();
-                accept
-            } else if (event.text == "w" || event.text == "W") {
-                root.toggle_whiteout();
-                accept
-            } else if (event.text == "s" || event.text == "S") {
-                root.swap_screens();
-                accept
-            } else if (event.text == "j" || event.text == "J") {
-                root.next_frame();
-                accept
-            } else if (event.text == "k" || event.text == "K") {
-                root.prev_frame();
-                accept
-            } else if (event.text == "o" || event.text == "O") {
-                root.toggle_toc();
-                accept
-            } else if (event.text == "l" || event.text == "L") {
-                root.current_tool = ActiveTool.Laser;
-                root.laser_color = root.active_color;
-                root.tool_selected(ActiveTool.Laser);
-                root.show_laser_popover = false;
-                root.show_eraser_popover = false;
-                root.show_pen_popover = false;
-                root.show_highlighter_popover = false;
-                root.show_color_popover = false;
-                accept
-            } else if (event.text == "p" || event.text == "P") {
-                root.current_tool = ActiveTool.Pen;
-                root.tool_selected(ActiveTool.Pen);
-                root.show_pen_popover = false;
-                root.show_highlighter_popover = false;
-                root.show_eraser_popover = false;
-                root.show_laser_popover = false;
-                root.show_color_popover = false;
-                accept
-            } else if (event.text == "h" || event.text == "H") {
-                root.current_tool = ActiveTool.Highlighter;
-                root.tool_selected(ActiveTool.Highlighter);
-                root.show_pen_popover = false;
-                root.show_highlighter_popover = false;
-                root.show_eraser_popover = false;
-                root.show_laser_popover = false;
-                root.show_color_popover = false;
-                accept
-            } else if (event.text == "e" || event.text == "E") {
-                root.current_tool = ActiveTool.Eraser;
-                root.tool_selected(ActiveTool.Eraser);
-                root.show_pen_popover = false;
-                root.show_highlighter_popover = false;
-                root.show_eraser_popover = false;
-                root.show_laser_popover = false;
-                root.show_color_popover = false;
-                accept
-
-            } else if (event.text == "t" || event.text == "T") {
-                root.show_thumbnails = !root.show_thumbnails;
-                accept
-            } else if (event.text == "m" || event.text == "M") {
-                root.toggle_media_playback();
-                accept
-            } else if (event.text == "1") {
-                root.active_color_slot = 0;
-                root.active_color = root.color_slot_1;
-                root.color_changed(root.color_slot_1);
-                accept
-            } else if (event.text == "2") {
-                root.active_color_slot = 1;
-                root.active_color = root.color_slot_2;
-                root.color_changed(root.color_slot_2);
-                accept
-            } else if (event.text == "3") {
-                root.active_color_slot = 2;
-                root.active_color = root.color_slot_3;
-                root.color_changed(root.color_slot_3);
-                accept
-            } else if (event.text == "4") {
-                root.active_color_slot = 3;
-                root.active_color = root.color_slot_4;
-                root.color_changed(root.color_slot_4);
-                accept
-            } else if (event.text == "5") {
-                root.active_color_slot = 4;
-                root.active_color = root.color_slot_5;
-                root.color_changed(root.color_slot_5);
-                accept
-            } else if (event.text == " " || event.text == Key.RightArrow || event.text == Key.DownArrow || event.text == Key.PageDown || event.text == Key.Return || event.text == "Right" || event.text == "Down" || event.text == "PageDown" || event.text == "Return") {
-                root.next_slide();
-                accept
-            } else if (event.text == Key.LeftArrow || event.text == Key.UpArrow || event.text == Key.PageUp || event.text == Key.Backspace || event.text == "Left" || event.text == "Up" || event.text == "PageUp" || event.text == "Backspace") {
-                root.prev_slide();
-                accept
-            } else if (event.text == "n" || event.text == "N" || event.text == "+") {
-                root.add_whiteboard_page();
-                accept
-            } else if (event.text == "z" && (event.modifiers.control || event.modifiers.meta) && !event.modifiers.shift) {
-                root.undo();
-                accept
-            } else if ((event.text == "y" || (event.text == "z" && event.modifiers.shift)) && (event.modifiers.control || event.modifiers.meta)) {
-                root.redo();
-                accept
-            } else if ((event.text == "z" || event.text == "Z") && !event.modifiers.control && !event.modifiers.meta) {
-                if (root.zoom_level > 1.0) {
-                    root.zoom_level = 1.0;
-                    root.reset_zoom();
-                } else {
-                    root.current_tool = ActiveTool.Select;
-                    root.tool_selected(ActiveTool.Select);
-                }
+            if (root.handle_key(event.text, event.modifiers.control, event.modifiers.meta, event.modifiers.shift)) {
                 accept
             } else {
                 reject
@@ -7549,6 +7559,19 @@ export component AudienceWindow inherits Window {
     callback canvas_pointer_down(float, float, float);
     callback canvas_pointer_move(float, float, float);
     callback canvas_pointer_up();
+    // Keyboard shortcuts typed while this window has focus go to the presenter's handler
+    callback key_forward(string, bool, bool, bool) -> bool;
+
+    forward-focus: aud-key-handler;
+    aud-key-handler := FocusScope {
+        key-pressed(event) => {
+            if (root.key_forward(event.text, event.modifiers.control, event.modifiers.meta, event.modifiers.shift)) {
+                accept
+            } else {
+                reject
+            }
+        }
+    }
 
     Rectangle {
         width: 100%;

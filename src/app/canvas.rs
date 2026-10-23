@@ -608,5 +608,15 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
         });
     }
 
+    {
+        let presenter_handle = presenter_window.as_weak();
+        audience_window.on_key_forward(move |text, ctrl, meta, shift| {
+            presenter_handle
+                .upgrade()
+                .map(|p| p.invoke_handle_key(text, ctrl, meta, shift))
+                .unwrap_or(false)
+        });
+    }
+
     vec![laser_decay_timer, shape_check_timer]
 }
