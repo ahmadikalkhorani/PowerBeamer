@@ -373,38 +373,6 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
 
     {
         let state = state.clone();
-        presenter_window.on_toggle_enhanced_sensitivity(move |enabled| {
-            let mut st = state.borrow_mut();
-            st.enhanced_sensitivity = enabled;
-            println!("Enhanced Sensitivity toggled: {}", enabled);
-        });
-    }
-
-    {
-        let state = state.clone();
-        presenter_window.on_toggle_draw_on_hover(move |enabled| {
-            let mut st = state.borrow_mut();
-            st.draw_on_hover = enabled;
-            println!("Draw on Hover toggled: {}", enabled);
-        });
-    }
-
-    {
-        let state = state.clone();
-        presenter_window.on_select_pen_type(move |ptype| {
-            let mut st = state.borrow_mut();
-            st.pen_type = ptype;
-            println!("Selected Pen Type: {}", match ptype {
-                0 => "Fineliner",
-                1 => "Fountain Pen",
-                2 => "Marker",
-                _ => "Custom",
-            });
-        });
-    }
-
-    {
-        let state = state.clone();
         let pres_handle = presenter_window.as_weak();
         presenter_window.on_select_pen_size(move |size_val, label| {
             let mut st = state.borrow_mut();

@@ -659,9 +659,6 @@ export component PresenterWindow inherits Window {
     in-out property <bool> scribble_to_erase: true;
     in-out property <float> hold_delay_s: 0.5;
     in-out property <string> hold_delay_text: "0.5s";
-    in-out property <bool> enhanced_sensitivity: true;
-    in-out property <bool> draw_on_hover: true;
-    in-out property <int> pen_type: 1; // 0: Fineliner, 1: Fountain, 2: Marker
     in-out property <string> pen_size_mm: "0.8mm";
     in-out property <float> pen_size_value: 0.8;
     in-out property <bool> current_has_media: false;
@@ -807,9 +804,6 @@ export component PresenterWindow inherits Window {
     callback toggle_auto_shape(bool);
     callback toggle_scribble_to_erase(bool);
     callback change_hold_delay(float);
-    callback toggle_enhanced_sensitivity(bool);
-    callback toggle_draw_on_hover(bool);
-    callback select_pen_type(int);
     callback select_pen_size(float, string);
 
     // Highlighter Tool Callbacks
@@ -3542,7 +3536,7 @@ export component PresenterWindow inherits Window {
                 // --- Presenter FLOATING PEN TOOL POPOVER ---
                 if root.show_pen_popover: Rectangle {
                     width: 316px;
-                    height: root.pen_popover_tab == 0 ? 440px : 395px;
+                    height: pen_layout.preferred-height;
                     x: 52px;
                     y: 35px;
                     background: #1c1c22;
@@ -3566,7 +3560,7 @@ export component PresenterWindow inherits Window {
                         commands: "M 8 0 L 0 7 L 8 14 Z";
                     }
 
-                    VerticalLayout {
+                    pen_layout := VerticalLayout {
                         padding-top: 14px;
                         padding-bottom: 14px;
                         padding-left: 16px;
@@ -3642,11 +3636,11 @@ export component PresenterWindow inherits Window {
                                     commands: "M 20 28 C 75 28, 95 8, 140 8 C 185 8, 205 32, 250 20";
                                 }
 
-                                // Tip and Size Badge in bottom corner
+                                // Size badge in bottom corner
                                 Rectangle {
                                     x: parent.width - self.width - 8px;
                                     y: parent.height - self.height - 8px;
-                                    width: 72px;
+                                    width: 52px;
                                     height: 20px;
                                     border-radius: 10px;
                                     background: #1e1e26dd;
@@ -3654,7 +3648,7 @@ export component PresenterWindow inherits Window {
                                     border-color: #30303e;
 
                                     Text {
-                                        text: (root.pen_type == 0 ? "Ball • " : (root.pen_type == 1 ? "Nib • " : "Brush • ")) + (root.pen_size_mm != "" ? root.pen_size_mm : ((Math.round(root.pen_size_value * 10) / 10) + "mm"));
+                                        text: (root.pen_size_mm != "" ? root.pen_size_mm : ((Math.round(root.pen_size_value * 10) / 10) + "mm"));
                                         color: #d1d5db;
                                         font-size: 10px;
                                         font-weight: 600;
@@ -3664,143 +3658,7 @@ export component PresenterWindow inherits Window {
                                 }
                             }
 
-                            // 2. "Pen Type" Section
-                            VerticalLayout {
-                                spacing: 7px;
-                                Text {
-                                    text: "PEN TYPE";
-                                    color: #8e8e9a;
-                                    font-size: 11px;
-                                    font-weight: 700;
-                                    letter-spacing: 0.5px;
-                                }
-
-                                HorizontalLayout {
-                                    spacing: 8px;
-
-                                    // Fineliner / Ballpoint
-                                    Rectangle {
-                                        horizontal-stretch: 1;
-                                        height: 58px;
-                                        border-radius: 11px;
-                                        background: root.pen_type == 0 ? #252a38 : (touch_pen_0.has-hover ? #25252e : #1c1c22);
-                                        border-width: root.pen_type == 0 ? 1.5px : 1px;
-                                        border-color: root.pen_type == 0 ? #0a84ff : (touch_pen_0.has-hover ? #383846 : #2a2a34);
-                                        drop-shadow-blur: root.pen_type == 0 ? 10px : 0px;
-                                        drop-shadow-color: root.pen_type == 0 ? #0a84ff30 : transparent;
-                                        animate background { duration: 120ms; }
-                                        animate border-color { duration: 120ms; }
-
-                                        VerticalLayout {
-                                            alignment: center;
-                                            spacing: 4px;
-                                            Image {
-                                                source: @image-url("icons/tip_ballpoint.svg");
-                                                width: 18px;
-                                                height: 18px;
-                                                horizontal-alignment: center;
-                                                colorize: root.pen_type == 0 ? #0a84ff : #9ca3af;
-                                            }
-                                            Text {
-                                                text: "Ballpoint";
-                                                font-size: 11px;
-                                                font-weight: root.pen_type == 0 ? 600 : 500;
-                                                color: root.pen_type == 0 ? #ffffff : #9ca3af;
-                                                horizontal-alignment: center;
-                                            }
-                                        }
-                                        touch_pen_0 := TouchArea {
-                                            mouse-cursor: pointer;
-                                            clicked => {
-                                                root.pen_type = 0;
-                                                root.select_pen_type(0);
-                                            }
-                                        }
-                                    }
-
-                                    // Fountain Pen
-                                    Rectangle {
-                                        horizontal-stretch: 1;
-                                        height: 58px;
-                                        border-radius: 11px;
-                                        background: root.pen_type == 1 ? #252a38 : (touch_pen_1.has-hover ? #25252e : #1c1c22);
-                                        border-width: root.pen_type == 1 ? 1.5px : 1px;
-                                        border-color: root.pen_type == 1 ? #0a84ff : (touch_pen_1.has-hover ? #383846 : #2a2a34);
-                                        drop-shadow-blur: root.pen_type == 1 ? 10px : 0px;
-                                        drop-shadow-color: root.pen_type == 1 ? #0a84ff30 : transparent;
-                                        animate background { duration: 120ms; }
-                                        animate border-color { duration: 120ms; }
-
-                                        VerticalLayout {
-                                            alignment: center;
-                                            spacing: 4px;
-                                            Image {
-                                                source: @image-url("icons/tip_fountain.svg");
-                                                width: 18px;
-                                                height: 18px;
-                                                horizontal-alignment: center;
-                                                colorize: root.pen_type == 1 ? #0a84ff : #9ca3af;
-                                            }
-                                            Text {
-                                                text: "Fountain";
-                                                font-size: 11px;
-                                                font-weight: root.pen_type == 1 ? 600 : 500;
-                                                color: root.pen_type == 1 ? #ffffff : #9ca3af;
-                                                horizontal-alignment: center;
-                                            }
-                                        }
-                                        touch_pen_1 := TouchArea {
-                                            mouse-cursor: pointer;
-                                            clicked => {
-                                                root.pen_type = 1;
-                                                root.select_pen_type(1);
-                                            }
-                                        }
-                                    }
-
-                                    // Brush Pen
-                                    Rectangle {
-                                        horizontal-stretch: 1;
-                                        height: 58px;
-                                        border-radius: 11px;
-                                        background: root.pen_type == 2 ? #252a38 : (touch_pen_2.has-hover ? #25252e : #1c1c22);
-                                        border-width: root.pen_type == 2 ? 1.5px : 1px;
-                                        border-color: root.pen_type == 2 ? #0a84ff : (touch_pen_2.has-hover ? #383846 : #2a2a34);
-                                        drop-shadow-blur: root.pen_type == 2 ? 10px : 0px;
-                                        drop-shadow-color: root.pen_type == 2 ? #0a84ff30 : transparent;
-                                        animate background { duration: 120ms; }
-                                        animate border-color { duration: 120ms; }
-
-                                        VerticalLayout {
-                                            alignment: center;
-                                            spacing: 4px;
-                                            Image {
-                                                source: @image-url("icons/tip_brush.svg");
-                                                width: 18px;
-                                                height: 18px;
-                                                horizontal-alignment: center;
-                                                colorize: root.pen_type == 2 ? #0a84ff : #9ca3af;
-                                            }
-                                            Text {
-                                                text: "Brush";
-                                                font-size: 11px;
-                                                font-weight: root.pen_type == 2 ? 600 : 500;
-                                                color: root.pen_type == 2 ? #ffffff : #9ca3af;
-                                                horizontal-alignment: center;
-                                            }
-                                        }
-                                        touch_pen_2 := TouchArea {
-                                            mouse-cursor: pointer;
-                                            clicked => {
-                                                root.pen_type = 2;
-                                                root.select_pen_type(2);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // 3. "Size" Section
+                            // 2. "Size" Section
                             VerticalLayout {
                                 spacing: 7px;
                                 Text {
@@ -4167,88 +4025,6 @@ export component PresenterWindow inherits Window {
                                     }
                                 }
                             }
-
-                            // Section 2: Pen Pressure
-                            VerticalLayout {
-                                spacing: 6px;
-                                Text {
-                                    text: "PEN PRESSURE";
-                                    color: #8e8e9a;
-                                    font-size: 11px;
-                                    font-weight: 700;
-                                    letter-spacing: 0.5px;
-                                }
-
-                                // Grouped Card for Pressure Settings
-                                Rectangle {
-                                    border-radius: 12px;
-                                    background: #1b1b22;
-                                    border-width: 1px;
-                                    border-color: #2a2a36;
-
-                                    VerticalLayout {
-                                        padding-left: 12px;
-                                        padding-right: 12px;
-                                        padding-top: 10px;
-                                        padding-bottom: 10px;
-                                        spacing: 10px;
-
-                                        // Enhanced Sensitivity
-                                        HorizontalLayout {
-                                            alignment: space-between;
-                                            VerticalLayout {
-                                                spacing: 2px;
-                                                Text {
-                                                    text: "Enhanced Sensitivity";
-                                                    color: #f3f4f6;
-                                                    font-size: 13px;
-                                                    font-weight: 500;
-                                                }
-                                                Text {
-                                                    text: "Updates with latest pen pressure";
-                                                    color: #8e8e93;
-                                                    font-size: 10.5px;
-                                                }
-                                            }
-                                            PresenterToggle {
-                                                checked: root.enhanced_sensitivity;
-                                                toggled(val) => {
-                                                    root.enhanced_sensitivity = val;
-                                                    root.toggle_enhanced_sensitivity(val);
-                                                }
-                                            }
-                                        }
-
-                                        Rectangle { height: 1px; background: #262632; }
-
-                                        // Draw on Hover
-                                        HorizontalLayout {
-                                            alignment: space-between;
-                                            VerticalLayout {
-                                                spacing: 2px;
-                                                Text {
-                                                    text: "Draw on Hover";
-                                                    color: #f3f4f6;
-                                                    font-size: 13px;
-                                                    font-weight: 500;
-                                                }
-                                                Text {
-                                                    text: "Draw even without pen pressure";
-                                                    color: #8e8e93;
-                                                    font-size: 10.5px;
-                                                }
-                                            }
-                                            PresenterToggle {
-                                                checked: root.draw_on_hover;
-                                                toggled(val) => {
-                                                    root.draw_on_hover = val;
-                                                    root.toggle_draw_on_hover(val);
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
                         }
 
                         // === BOTTOM TAB SWITCHER PILL ===
@@ -4276,11 +4052,14 @@ export component PresenterWindow inherits Window {
                                     HorizontalLayout {
                                         alignment: center;
                                         spacing: 7px;
-                                        Image {
-                                            source: @image-url("icons/tab_presets.svg");
-                                            width: 14px;
-                                            height: 14px;
-                                            colorize: root.pen_popover_tab == 0 ? #ffffff : #8e8e9a;
+                                        VerticalLayout {
+                                            alignment: center;
+                                            Image {
+                                                source: @image-url("icons/tab_presets.svg");
+                                                width: 14px;
+                                                height: 14px;
+                                                colorize: root.pen_popover_tab == 0 ? #ffffff : #8e8e9a;
+                                            }
                                         }
                                         Text {
                                             text: "Presets";
@@ -4309,11 +4088,14 @@ export component PresenterWindow inherits Window {
                                     HorizontalLayout {
                                         alignment: center;
                                         spacing: 7px;
-                                        Image {
-                                            source: @image-url("icons/tab_settings.svg");
-                                            width: 14px;
-                                            height: 14px;
-                                            colorize: root.pen_popover_tab == 1 ? #ffffff : #8e8e9a;
+                                        VerticalLayout {
+                                            alignment: center;
+                                            Image {
+                                                source: @image-url("icons/tab_settings.svg");
+                                                width: 14px;
+                                                height: 14px;
+                                                colorize: root.pen_popover_tab == 1 ? #ffffff : #8e8e9a;
+                                            }
                                         }
                                         Text {
                                             text: "Settings";
@@ -4905,14 +4687,14 @@ export component PresenterWindow inherits Window {
 
                 // --- Presenter FLOATING PRESENTATION TOOL POPOVER ---
                 if root.show_laser_popover: Rectangle {
-                    width: 300px;
-                    height: 258px;
+                    width: 316px;
+                    height: laser_layout.preferred-height;
                     x: 52px;
                     y: 160px;
-                    background: #1c1c1f;
-                    border-radius: 16px;
+                    background: #1c1c22;
+                    border-radius: 18px;
                     border-width: 1px;
-                    border-color: #2c2c34;
+                    border-color: #32323e;
                     drop-shadow-blur: 24px;
                     drop-shadow-color: #000000dd;
 
@@ -4925,297 +4707,213 @@ export component PresenterWindow inherits Window {
                         y: 95px;
                         width: 8px;
                         height: 14px;
-                        fill: #1c1c1f;
+                        fill: #1c1c22;
                         commands: "M 8 0 L 0 7 L 8 14 Z";
                     }
 
-                    VerticalLayout {
+                    laser_layout := VerticalLayout {
                         padding-top: 14px;
-                        padding-bottom: 14px;
+                        padding-bottom: 16px;
                         padding-left: 16px;
                         padding-right: 16px;
                         spacing: 12px;
 
-                        // Title: "Presentation Tool" centered bold
-                        Text {
-                            text: "Presentation Tool";
-                            font-size: 15px;
-                            font-weight: 700;
-                            color: #ffffff;
-                            horizontal-alignment: center;
-                        }
-
-                        // Pointer Style section
-                        VerticalLayout {
-                            spacing: 8px;
-
+                        // Header: "Presentation Tool" centered, close ✕
+                        HorizontalLayout {
+                            alignment: space-between;
+                            Rectangle { width: 24px; }
                             Text {
-                                text: "Pointer Style";
-                                font-size: 13px;
-                                font-weight: 600;
-                                color: #9ca3af;
+                                text: "Presentation Tool";
+                                color: #ffffff;
+                                font-size: 15px;
+                                font-weight: 700;
+                                letter-spacing: 0.2px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
                             }
-
-                            // 4 Color Swatches: Red (#ff3b30), Blue (#0055ff), Green (#00e53a), Purple (#b800ff)
-                            HorizontalLayout {
-                                spacing: 14px;
-                                alignment: start;
-
-                                // Red
-                                Rectangle {
-                                    width: 36px;
-                                    height: 36px;
-                                    background: transparent;
-
-                                    if root.laser_color_index == 0: Rectangle {
-                                        x: (parent.width - self.width) / 2;
-                                        y: (parent.height - self.height) / 2;
-                                        width: 34px;
-                                        height: 34px;
-                                        border-radius: 17px;
-                                        background: #ff3b30.transparentize(0.7);
-                                        border-width: 2px;
-                                        border-color: #ff3b30;
-                                        drop-shadow-blur: 10px;
-                                        drop-shadow-color: #ff3b30;
-                                    }
-
-                                    Rectangle {
-                                        x: (parent.width - self.width) / 2;
-                                        y: (parent.height - self.height) / 2;
-                                        width: 24px;
-                                        height: 24px;
-                                        border-radius: 12px;
-                                        background: #ff3b30;
-                                    }
-
-                                    TouchArea {
-                                        mouse-cursor: pointer;
-                                        clicked => {
-                                            root.laser_color_index = 0;
-                                            root.laser_color = #ff3b30;
-                                            root.select_laser_color(0, #ff3b30);
-                                        }
-                                    }
+                            Rectangle {
+                                width: 24px;
+                                height: 24px;
+                                border-radius: 12px;
+                                background: touch-laser-close.has-hover ? #2e2e38 : #23232a;
+                                border-width: 1px;
+                                border-color: touch-laser-close.has-hover ? #40404e : #2c2c36;
+                                animate background { duration: 100ms; }
+                                Image {
+                                    source: @image-url("icons/close.svg");
+                                    width: 11px;
+                                    height: 11px;
+                                    x: (parent.width - self.width) / 2;
+                                    y: (parent.height - self.height) / 2;
+                                    colorize: touch-laser-close.has-hover ? #ffffff : #9ca3af;
                                 }
-
-                                // Blue
-                                Rectangle {
-                                    width: 36px;
-                                    height: 36px;
-                                    background: transparent;
-
-                                    if root.laser_color_index == 1: Rectangle {
-                                        x: (parent.width - self.width) / 2;
-                                        y: (parent.height - self.height) / 2;
-                                        width: 34px;
-                                        height: 34px;
-                                        border-radius: 17px;
-                                        background: #0055ff.transparentize(0.7);
-                                        border-width: 2px;
-                                        border-color: #0055ff;
-                                        drop-shadow-blur: 10px;
-                                        drop-shadow-color: #0055ff;
-                                    }
-
-                                    Rectangle {
-                                        x: (parent.width - self.width) / 2;
-                                        y: (parent.height - self.height) / 2;
-                                        width: 24px;
-                                        height: 24px;
-                                        border-radius: 12px;
-                                        background: #0055ff;
-                                    }
-
-                                    TouchArea {
-                                        mouse-cursor: pointer;
-                                        clicked => {
-                                            root.laser_color_index = 1;
-                                            root.laser_color = #0055ff;
-                                            root.select_laser_color(1, #0055ff);
-                                        }
-                                    }
-                                }
-
-                                // Green
-                                Rectangle {
-                                    width: 36px;
-                                    height: 36px;
-                                    background: transparent;
-
-                                    if root.laser_color_index == 2: Rectangle {
-                                        x: (parent.width - self.width) / 2;
-                                        y: (parent.height - self.height) / 2;
-                                        width: 34px;
-                                        height: 34px;
-                                        border-radius: 17px;
-                                        background: #00e53a.transparentize(0.7);
-                                        border-width: 2px;
-                                        border-color: #00e53a;
-                                        drop-shadow-blur: 10px;
-                                        drop-shadow-color: #00e53a;
-                                    }
-
-                                    Rectangle {
-                                        x: (parent.width - self.width) / 2;
-                                        y: (parent.height - self.height) / 2;
-                                        width: 24px;
-                                        height: 24px;
-                                        border-radius: 12px;
-                                        background: #00e53a;
-                                    }
-
-                                    TouchArea {
-                                        mouse-cursor: pointer;
-                                        clicked => {
-                                            root.laser_color_index = 2;
-                                            root.laser_color = #00e53a;
-                                            root.select_laser_color(2, #00e53a);
-                                        }
-                                    }
-                                }
-
-                                // Purple
-                                Rectangle {
-                                    width: 36px;
-                                    height: 36px;
-                                    background: transparent;
-
-                                    if root.laser_color_index == 3: Rectangle {
-                                        x: (parent.width - self.width) / 2;
-                                        y: (parent.height - self.height) / 2;
-                                        width: 34px;
-                                        height: 34px;
-                                        border-radius: 17px;
-                                        background: #b800ff.transparentize(0.7);
-                                        border-width: 2px;
-                                        border-color: #b800ff;
-                                        drop-shadow-blur: 10px;
-                                        drop-shadow-color: #b800ff;
-                                    }
-
-                                    Rectangle {
-                                        x: (parent.width - self.width) / 2;
-                                        y: (parent.height - self.height) / 2;
-                                        width: 24px;
-                                        height: 24px;
-                                        border-radius: 12px;
-                                        background: #b800ff;
-                                    }
-
-                                    TouchArea {
-                                        mouse-cursor: pointer;
-                                        clicked => {
-                                            root.laser_color_index = 3;
-                                            root.laser_color = #b800ff;
-                                            root.select_laser_color(3, #b800ff);
-                                        }
-                                    }
+                                touch-laser-close := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => { root.show_laser_popover = false; }
                                 }
                             }
                         }
 
-                        // Card: Draw Lines with toggle switch
-                        Rectangle {
-                            height: 44px;
-                            border-radius: 10px;
-                            background: #202024;
-                            border-width: 1px;
-                            border-color: #2c2c32;
+                        // Pointer color
+                        VerticalLayout {
+                            spacing: 6px;
+                            Text {
+                                text: "POINTER COLOR";
+                                color: #8e8e9a;
+                                font-size: 11px;
+                                font-weight: 700;
+                                letter-spacing: 0.5px;
+                            }
+
                             HorizontalLayout {
-                                padding-left: 14px;
-                                padding-right: 12px;
                                 alignment: space-between;
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                for swatch[i] in [#ff3b30, #0055ff, #00e53a, #b800ff]: Rectangle {
+                                    width: 36px;
+                                    height: 36px;
 
-                                HorizontalLayout {
-                                    spacing: 10px;
-                                    alignment: start;
+                                    if root.laser_color_index == i: Rectangle {
+                                        width: 34px;
+                                        height: 34px;
+                                        border-radius: 17px;
+                                        background: swatch.transparentize(0.7);
+                                        border-width: 2px;
+                                        border-color: swatch;
+                                    }
 
-                                    // Diagonal line icon "/"
                                     Rectangle {
-                                        width: 18px;
-                                        height: 18px;
-                                        y: 13px;
-                                        background: transparent;
-                                        Path {
-                                            x: 2px;
-                                            y: 2px;
-                                            width: 14px;
-                                            height: 14px;
-                                            stroke: #8e8e93;
-                                            stroke-width: 2px;
-                                            commands: "M 13 1 L 1 13";
+                                        width: swatch_touch.has-hover ? 26px : 24px;
+                                        height: self.width;
+                                        border-radius: self.width / 2;
+                                        background: swatch;
+                                        animate width { duration: 100ms; }
+                                    }
+
+                                    swatch_touch := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => {
+                                            root.laser_color_index = i;
+                                            root.laser_color = swatch;
+                                            root.select_laser_color(i, swatch);
                                         }
-                                    }
-
-                                    Text {
-                                        text: "Draw Lines";
-                                        color: #f3f4f6;
-                                        font-size: 14px;
-                                        font-weight: 500;
-                                        vertical-alignment: center;
-                                    }
-                                }
-
-                                PresenterToggle {
-                                    checked: root.laser_draw_lines;
-                                    toggled(val) => {
-                                        root.laser_draw_lines = val;
-                                        root.toggle_laser_draw_lines(val);
                                     }
                                 }
                             }
                         }
 
-                        // Card: Laser Pointer Fade Duration Controller (0.0s to 5.0s with decimals)
-                        Rectangle {
-                            height: 60px;
-                            border-radius: 10px;
-                            background: #202024;
-                            border-width: 1px;
-                            border-color: #2c2c32;
+                        // Trail
+                        VerticalLayout {
+                            spacing: 6px;
+                            Text {
+                                text: "TRAIL";
+                                color: #8e8e9a;
+                                font-size: 11px;
+                                font-weight: 700;
+                                letter-spacing: 0.5px;
+                            }
 
-                            VerticalLayout {
-                                padding-left: 14px;
-                                padding-right: 14px;
-                                padding-top: 8px;
-                                padding-bottom: 8px;
-                                spacing: 6px;
+                            Rectangle {
+                                border-radius: 12px;
+                                background: #1b1b22;
+                                border-width: 1px;
+                                border-color: #2a2a36;
 
-                                HorizontalLayout {
-                                    alignment: space-between;
+                                VerticalLayout {
+                                    padding-left: 12px;
+                                    padding-right: 12px;
+                                    padding-top: 10px;
+                                    padding-bottom: 10px;
+                                    spacing: 10px;
 
-                                    Text {
-                                        text: "Fade Time";
-                                        color: #f3f4f6;
-                                        font-size: 13px;
-                                        font-weight: 500;
-                                        vertical-alignment: center;
+                                    // Draw Lines
+                                    HorizontalLayout {
+                                        alignment: space-between;
+                                        VerticalLayout {
+                                            spacing: 2px;
+                                            Text {
+                                                text: "Draw Lines";
+                                                color: #f3f4f6;
+                                                font-size: 13px;
+                                                font-weight: 500;
+                                            }
+                                            Text {
+                                                text: "Leave a fading line instead of a dot";
+                                                color: #8e8e93;
+                                                font-size: 10.5px;
+                                            }
+                                        }
+                                        PresenterToggle {
+                                            checked: root.laser_draw_lines;
+                                            toggled(val) => {
+                                                root.laser_draw_lines = val;
+                                                root.toggle_laser_draw_lines(val);
+                                            }
+                                        }
                                     }
 
+                                    Rectangle { height: 1px; background: #262632; }
+
+                                    // Fade time slider row (0.0s to 5.0s)
                                     HorizontalLayout {
-                                        spacing: 6px;
+                                        spacing: 10px;
 
-                                        // Decrement -0.1s button
+                                        Text {
+                                            text: "Fade";
+                                            color: #f3f4f6;
+                                            font-size: 13px;
+                                            font-weight: 500;
+                                            vertical-alignment: center;
+                                            min-width: 38px;
+                                        }
+
                                         Rectangle {
-                                            width: 22px;
-                                            height: 22px;
-                                            border-radius: 4px;
-                                            background: minus_laser_touch.has-hover ? #374151 : #2a2a30;
+                                            height: 24px;
+                                            horizontal-stretch: 1;
 
-                                            Text {
-                                                text: "-";
-                                                color: #e5e7eb;
-                                                font-size: 15px;
-                                                font-weight: 700;
-                                                horizontal-alignment: center;
-                                                vertical-alignment: center;
+                                            Rectangle {
+                                                x: 10px;
+                                                y: 9px;
+                                                width: parent.width - 20px;
+                                                height: 6px;
+                                                border-radius: 3px;
+                                                background: #282834;
+                                                Rectangle {
+                                                    x: 0px;
+                                                    width: parent.width * (root.laser_fade_duration_s / 5.0).clamp(0.0, 1.0);
+                                                    height: 6px;
+                                                    border-radius: 3px;
+                                                    background: #0a84ff;
+                                                }
                                             }
 
-                                            minus_laser_touch := TouchArea {
+                                            Rectangle {
+                                                x: (parent.width - 20px) * (root.laser_fade_duration_s / 5.0).clamp(0.0, 1.0);
+                                                y: 2px;
+                                                width: 20px;
+                                                height: 20px;
+                                                border-radius: 10px;
+                                                background: #ffffff;
+                                                border-width: 0.5px;
+                                                border-color: #00000030;
+                                                drop-shadow-blur: 5px;
+                                                drop-shadow-color: #00000070;
+                                            }
+
+                                            TouchArea {
                                                 mouse-cursor: pointer;
+                                                moved => {
+                                                    if (self.pressed) {
+                                                        let ratio = ((self.mouse-x - 10px) / (self.width - 20px)).clamp(0.0, 1.0);
+                                                        let val = Math.round(ratio * 50.0) / 10.0;
+                                                        root.laser_fade_duration_s = val;
+                                                        root.laser_fade_duration_text = val + "s";
+                                                        root.change_laser_fade_duration(val);
+                                                    }
+                                                }
                                                 clicked => {
-                                                    let val = max(0.0, Math.round((root.laser_fade_duration_s - 0.1) * 10) / 10);
+                                                    let ratio = ((self.mouse-x - 10px) / (self.width - 20px)).clamp(0.0, 1.0);
+                                                    let val = Math.round(ratio * 50.0) / 10.0;
                                                     root.laser_fade_duration_s = val;
                                                     root.laser_fade_duration_text = val + "s";
                                                     root.change_laser_fade_duration(val);
@@ -5223,105 +4921,21 @@ export component PresenterWindow inherits Window {
                                             }
                                         }
 
-                                        // Decimal readout badge (e.g. 1.8s)
                                         Rectangle {
-                                            width: 48px;
-                                            height: 22px;
-                                            border-radius: 4px;
-                                            background: #141416;
+                                            width: 44px;
+                                            height: 24px;
+                                            border-radius: 6px;
+                                            background: #141418;
                                             border-width: 1px;
-                                            border-color: #2c2c34;
-
+                                            border-color: #2a2a34;
                                             Text {
                                                 text: root.laser_fade_duration_text;
-                                                color: #60a5fa;
-                                                font-size: 12px;
-                                                font-weight: 700;
+                                                color: #ffffff;
+                                                font-size: 11px;
+                                                font-weight: 600;
                                                 horizontal-alignment: center;
                                                 vertical-alignment: center;
                                             }
-                                        }
-
-                                        // Increment +0.1s button
-                                        Rectangle {
-                                            width: 22px;
-                                            height: 22px;
-                                            border-radius: 4px;
-                                            background: plus_laser_touch.has-hover ? #374151 : #2a2a30;
-
-                                            Text {
-                                                text: "+";
-                                                color: #e5e7eb;
-                                                font-size: 15px;
-                                                font-weight: 700;
-                                                horizontal-alignment: center;
-                                                vertical-alignment: center;
-                                            }
-
-                                            plus_laser_touch := TouchArea {
-                                                mouse-cursor: pointer;
-                                                clicked => {
-                                                    let val = min(5.0, Math.round((root.laser_fade_duration_s + 0.1) * 10) / 10);
-                                                    root.laser_fade_duration_s = val;
-                                                    root.laser_fade_duration_text = val + "s";
-                                                    root.change_laser_fade_duration(val);
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // Interactive Slider (0.0s to 5.0s)
-                                Rectangle {
-                                    height: 18px;
-
-                                    // Track background
-                                    Rectangle {
-                                        y: 6px;
-                                        width: parent.width;
-                                        height: 6px;
-                                        border-radius: 3px;
-                                        background: #2c2c34;
-
-                                        // Active filled track
-                                        Rectangle {
-                                            x: 0px;
-                                            width: parent.width * (root.laser_fade_duration_s / 5.0).clamp(0.0, 1.0);
-                                            height: 6px;
-                                            border-radius: 3px;
-                                            background: #3b82f6;
-                                        }
-                                    }
-
-                                    // Slider Thumb / Knob
-                                    Rectangle {
-                                        x: (parent.width - 16px) * (root.laser_fade_duration_s / 5.0).clamp(0.0, 1.0);
-                                        y: 1px;
-                                        width: 16px;
-                                        height: 16px;
-                                        border-radius: 8px;
-                                        background: #ffffff;
-                                        drop-shadow-blur: 4px;
-                                        drop-shadow-color: #00000088;
-                                    }
-
-                                    fade_slider_touch := TouchArea {
-                                        mouse-cursor: pointer;
-                                        moved => {
-                                            if (self.pressed) {
-                                                let ratio = (self.mouse-x / self.width).clamp(0.0, 1.0);
-                                                let val = Math.round(ratio * 50.0) / 10.0;
-                                                root.laser_fade_duration_s = val;
-                                                root.laser_fade_duration_text = val + "s";
-                                                root.change_laser_fade_duration(val);
-                                            }
-                                        }
-                                        clicked => {
-                                            let ratio = (self.mouse-x / self.width).clamp(0.0, 1.0);
-                                            let val = Math.round(ratio * 50.0) / 10.0;
-                                            root.laser_fade_duration_s = val;
-                                            root.laser_fade_duration_text = val + "s";
-                                            root.change_laser_fade_duration(val);
                                         }
                                     }
                                 }

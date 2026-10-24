@@ -13,12 +13,9 @@ pub struct Settings {
     pub render_quality: Option<String>,
 
     pub stroke_width: Option<f32>,
-    pub pen_type: Option<i32>,
     pub auto_shape_enabled: Option<bool>,
     pub scribble_to_erase: Option<bool>,
     pub hold_delay_ms: Option<u64>,
-    pub enhanced_sensitivity: Option<bool>,
-    pub draw_on_hover: Option<bool>,
 
     pub highlighter_mode: Option<i32>,
     pub highlighter_straight_lines: Option<bool>,

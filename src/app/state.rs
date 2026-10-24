@@ -86,9 +86,6 @@ pub(crate) struct AppState {
     pub(crate) auto_shape_enabled: bool,
     pub(crate) scribble_to_erase: bool,
     pub(crate) hold_delay_ms: u64,
-    pub(crate) enhanced_sensitivity: bool,
-    pub(crate) draw_on_hover: bool,
-    pub(crate) pen_type: i32,
 
     // Highlighter settings
     pub(crate) highlighter_mode: i32, // 0: Highlighter, 1: Tape
@@ -196,12 +193,9 @@ impl AppState {
             sync_with_source: Some(self.sync_with_source),
             render_quality: Some(self.deck.quality.label().to_string()),
             stroke_width: Some(self.stroke_width),
-            pen_type: Some(self.pen_type),
             auto_shape_enabled: Some(self.auto_shape_enabled),
             scribble_to_erase: Some(self.scribble_to_erase),
             hold_delay_ms: Some(self.hold_delay_ms),
-            enhanced_sensitivity: Some(self.enhanced_sensitivity),
-            draw_on_hover: Some(self.draw_on_hover),
             highlighter_mode: Some(self.highlighter_mode),
             highlighter_straight_lines: Some(self.highlighter_straight_lines),
             highlighter_size_mm: Some(self.highlighter_size_mm.clone()),
@@ -235,8 +229,8 @@ impl AppState {
             ($($field:ident),*) => { $( if let Some(v) = s.$field.clone() { self.$field = v; } )* };
         }
         set!(
-            sync_with_source, stroke_width, pen_type, auto_shape_enabled, scribble_to_erase,
-            hold_delay_ms, enhanced_sensitivity, draw_on_hover, highlighter_mode,
+            sync_with_source, stroke_width, auto_shape_enabled, scribble_to_erase,
+            hold_delay_ms, highlighter_mode,
             highlighter_straight_lines, highlighter_size_mm, eraser_size_index, eraser_radius,
             erase_whole_line, erase_highlight_only, auto_select_previous_tool, erase_shapes,
             erase_tapes, laser_color_index, laser_color_rgba, laser_draw_lines,
@@ -268,14 +262,11 @@ impl AppState {
         let pen_mm = self.stroke_width / 4.2;
         p.set_pen_size_value(pen_mm);
         p.set_pen_size_mm(SharedString::from(format!("{:.1}mm", pen_mm)));
-        p.set_pen_type(self.pen_type);
         p.set_auto_shape_enabled(self.auto_shape_enabled);
         p.set_scribble_to_erase(self.scribble_to_erase);
         let hold_s = self.hold_delay_ms as f32 / 1000.0;
         p.set_hold_delay_s(hold_s);
         p.set_hold_delay_text(SharedString::from(format!("{:.1}s", hold_s)));
-        p.set_enhanced_sensitivity(self.enhanced_sensitivity);
-        p.set_draw_on_hover(self.draw_on_hover);
         p.set_highlighter_mode(self.highlighter_mode);
         p.set_highlighter_straight_lines(self.highlighter_straight_lines);
         p.set_highlighter_size_mm(SharedString::from(&self.highlighter_size_mm));
@@ -455,9 +446,6 @@ impl AppState {
             auto_shape_enabled: true,
             scribble_to_erase: true,
             hold_delay_ms: 500,
-            enhanced_sensitivity: true,
-            draw_on_hover: true,
-            pen_type: 1,
 
             highlighter_mode: 0,
             highlighter_straight_lines: false,

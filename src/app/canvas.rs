@@ -95,7 +95,7 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                 }
             }
 
-            if !st.pointer_is_down || st.is_shape_snapped || !st.auto_shape_enabled {
+            if !st.pointer_is_down || st.is_shape_snapped || !(st.auto_shape_enabled || st.scribble_to_erase) {
                 return;
             }
             let elapsed_ms = st.last_pointer_move_time.elapsed().as_millis() as u64;
@@ -115,6 +115,10 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                 st.is_shape_snapped = true;
                 drop(st);
                 update_ink();
+                return;
+            }
+
+            if !st.auto_shape_enabled {
                 return;
             }
 
