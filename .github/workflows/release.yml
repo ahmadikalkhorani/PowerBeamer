@@ -182,7 +182,7 @@ jobs:
       - name: Build Binary
         run: cargo build --release --target x86_64-pc-windows-msvc
 
-      - name: Package Release Archive
+      - name: Package Windows Installer & Portable ZIP
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path target/win_pkg
@@ -199,16 +199,20 @@ jobs:
           Copy-Item README.md target/win_pkg/
           Copy-Item LICENSE target/win_pkg/
           
+          # Build NSIS Setup Installer (.exe)
+          makensis scripts/installer.nsi
+          Move-Item scripts/PowerBeamer-windows-x86_64-setup.exe .
+
+          # Also create a portable .zip
           Compress-Archive -Path target/win_pkg/* -DestinationPath PowerBeamer-windows-x86_64.zip
-          tar -czf PowerBeamer-windows-x86_64.tar.gz -C target/win_pkg .
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-x86_64-assets
           path: |
+            PowerBeamer-windows-x86_64-setup.exe
             PowerBeamer-windows-x86_64.zip
-            PowerBeamer-windows-x86_64.tar.gz
 
   publish-release:
     name: Publish GitHub Release
@@ -226,7 +230,7 @@ jobs:
       - name: Organize Assets & Generate Checksums
         run: |
           mkdir -p release_assets
-          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec cp {} release_assets/ \;
+          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.exe" -o -name "*.msi" \) -exec cp {} release_assets/ \;
           cd release_assets
           sha256sum * > SHA256SUMS.txt
           cd ..
