@@ -61,7 +61,7 @@ xattr -d com.apple.quarantine /Applications/PowerBeamer.app
   </tr>
   <tr>
     <td width="50%"><img src="docs/screenshots/toc.png" alt="Document outline drawer"><br><em>Outline / TOC drawer (<code>O</code>) for instant jumps</em></td>
-    <td width="50%"></td>
+    <td width="50%"><img src="docs/screenshots/player.png" alt="Built-in audio/video player"><br><em>Built-in Audio/Video player (<code>M</code>)</em></td>
   </tr>
 </table>
 
