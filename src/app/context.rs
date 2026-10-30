@@ -15,5 +15,6 @@ pub(crate) struct AppContext {
     pub(crate) notes_window: NotesWindow,
     pub(crate) update_ink_overlay: Rc<dyn Fn()>,
     pub(crate) video_player: Arc<Mutex<InPlaceVideoPlayer>>,
+    pub(crate) audio_tick: Rc<RefCell<Option<Rc<super::scheduling::DemandTimer>>>>,
     pub(crate) update_slide_view: Rc<dyn Fn()>,
 }

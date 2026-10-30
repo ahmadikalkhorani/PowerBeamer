@@ -1,0 +1,450 @@
+{
+  "runs": 3,
+  "before": {
+    "startup": [
+      {
+        "mode": "startup",
+        "ms": 14.26,
+        "peak_heap_bytes": 57607093
+      },
+      {
+        "mode": "startup",
+        "ms": 14.091,
+        "peak_heap_bytes": 57607093
+      },
+      {
+        "mode": "startup",
+        "ms": 15.855,
+        "peak_heap_bytes": 57607093
+      }
+    ],
+    "undo": [
+      {
+        "mode": "undo",
+        "build_ms": 87.192,
+        "retained_bytes": 609901672,
+        "total_ms": 178.893,
+        "peak_heap_bytes": 612333768
+      },
+      {
+        "mode": "undo",
+        "build_ms": 93.877,
+        "retained_bytes": 609901672,
+        "total_ms": 272.539,
+        "peak_heap_bytes": 612333768
+      },
+      {
+        "mode": "undo",
+        "build_ms": 84.307,
+        "retained_bytes": 609901672,
+        "total_ms": 176.152,
+        "peak_heap_bytes": 612333768
+      }
+    ],
+    "deck": [
+      {
+        "mode": "deck",
+        "slides": 140,
+        "ms": 3076.919,
+        "raw_pixel_bytes": 1123426080,
+        "retained_heap_bytes": 2247372092,
+        "peak_heap_bytes": 2247399306
+      },
+      {
+        "mode": "deck",
+        "slides": 140,
+        "ms": 3054.054,
+        "raw_pixel_bytes": 1123426080,
+        "retained_heap_bytes": 2247372092,
+        "peak_heap_bytes": 2247399306
+      },
+      {
+        "mode": "deck",
+        "slides": 140,
+        "ms": 3024.246,
+        "raw_pixel_bytes": 1123426080,
+        "retained_heap_bytes": 2247372092,
+        "peak_heap_bytes": 2247399306
+      }
+    ],
+    "ink": [
+      {
+        "mode": "ink_reference",
+        "ms": 74.258,
+        "published_bytes": 1382400000,
+        "peak_heap_bytes": 17286879
+      },
+      {
+        "mode": "ink_reference",
+        "ms": 74.432,
+        "published_bytes": 1382400000,
+        "peak_heap_bytes": 17286879
+      },
+      {
+        "mode": "ink_reference",
+        "ms": 74.725,
+        "published_bytes": 1382400000,
+        "peak_heap_bytes": 17286879
+      }
+    ],
+    "tex": [
+      {
+        "mode": "tex_reference",
+        "ms": 277.184
+      },
+      {
+        "mode": "tex_reference",
+        "ms": 270.87
+      },
+      {
+        "mode": "tex_reference",
+        "ms": 275.18
+      }
+    ],
+    "export": [
+      {
+        "mode": "export",
+        "ms": 27.276,
+        "peak_heap_bytes": 40403760
+      },
+      {
+        "mode": "export",
+        "ms": 27.07,
+        "peak_heap_bytes": 40403760
+      },
+      {
+        "mode": "export",
+        "ms": 26.697,
+        "peak_heap_bytes": 40403760
+      }
+    ],
+    "overview": [
+      {
+        "slides": 2000,
+        "ms": 54.803,
+        "heap_bytes": 28095937,
+        "peak_heap_bytes": 32538749
+      },
+      {
+        "slides": 2000,
+        "ms": 49.214,
+        "heap_bytes": 28098161,
+        "peak_heap_bytes": 32540973
+      },
+      {
+        "slides": 2000,
+        "ms": 79.752,
+        "heap_bytes": 28095937,
+        "peak_heap_bytes": 32538749
+      }
+    ]
+  },
+  "after": {
+    "startup": [
+      {
+        "mode": "startup",
+        "ms": 7.608,
+        "peak_heap_bytes": 28804376
+      },
+      {
+        "mode": "startup",
+        "ms": 7.385,
+        "peak_heap_bytes": 28804376
+      },
+      {
+        "mode": "startup",
+        "ms": 7.494,
+        "peak_heap_bytes": 28804376
+      }
+    ],
+    "undo": [
+      {
+        "mode": "undo",
+        "build_ms": 0.8,
+        "retained_bytes": 3125768,
+        "total_ms": 0.849,
+        "peak_heap_bytes": 3174160
+      },
+      {
+        "mode": "undo",
+        "build_ms": 0.833,
+        "retained_bytes": 3125768,
+        "total_ms": 0.884,
+        "peak_heap_bytes": 3174160
+      },
+      {
+        "mode": "undo",
+        "build_ms": 0.745,
+        "retained_bytes": 3125768,
+        "total_ms": 0.793,
+        "peak_heap_bytes": 3174160
+      }
+    ],
+    "deck": [
+      {
+        "mode": "deck",
+        "slides": 140,
+        "ms": 3635.794,
+        "raw_pixel_bytes": 1123426080,
+        "retained_heap_bytes": 32610172,
+        "peak_heap_bytes": 48674476
+      },
+      {
+        "mode": "deck",
+        "slides": 140,
+        "ms": 3529.846,
+        "raw_pixel_bytes": 1123426080,
+        "retained_heap_bytes": 32610172,
+        "peak_heap_bytes": 48674476
+      },
+      {
+        "mode": "deck",
+        "slides": 140,
+        "ms": 3564.229,
+        "raw_pixel_bytes": 1123426080,
+        "retained_heap_bytes": 32610172,
+        "peak_heap_bytes": 48674476
+      }
+    ],
+    "ink_coalesced": [
+      {
+        "mode": "ink_coalesced",
+        "ms": 59.504,
+        "published_bytes": 691200000,
+        "peak_heap_bytes": 17286889
+      },
+      {
+        "mode": "ink_coalesced",
+        "ms": 59.329,
+        "published_bytes": 691200000,
+        "peak_heap_bytes": 17286889
+      },
+      {
+        "mode": "ink_coalesced",
+        "ms": 60.338,
+        "published_bytes": 691200000,
+        "peak_heap_bytes": 17286889
+      }
+    ],
+    "tex_cached": [
+      {
+        "mode": "tex_cached",
+        "ms": 1.4
+      },
+      {
+        "mode": "tex_cached",
+        "ms": 1.342
+      },
+      {
+        "mode": "tex_cached",
+        "ms": 1.348
+      }
+    ],
+    "export": [
+      {
+        "mode": "export",
+        "ms": 14.116,
+        "peak_heap_bytes": 28888497
+      },
+      {
+        "mode": "export",
+        "ms": 13.785,
+        "peak_heap_bytes": 28888497
+      },
+      {
+        "mode": "export",
+        "ms": 13.823,
+        "peak_heap_bytes": 28888497
+      }
+    ],
+    "video_reference": [
+      {
+        "mode": "video_reference",
+        "ms": 58.082,
+        "peak_heap_bytes": 3687051
+      },
+      {
+        "mode": "video_reference",
+        "ms": 51.485,
+        "peak_heap_bytes": 3687051
+      },
+      {
+        "mode": "video_reference",
+        "ms": 51.236,
+        "peak_heap_bytes": 3687051
+      }
+    ],
+    "video_direct": [
+      {
+        "mode": "video_direct",
+        "ms": 6.564,
+        "peak_heap_bytes": 2765472
+      },
+      {
+        "mode": "video_direct",
+        "ms": 6.545,
+        "peak_heap_bytes": 2765472
+      },
+      {
+        "mode": "video_direct",
+        "ms": 6.66,
+        "peak_heap_bytes": 2765472
+      }
+    ],
+    "async_ops": [
+      {
+        "mode": "async_ops",
+        "seek_blocking_ms": 218.084,
+        "seek_dispatch_ms": 0.002,
+        "seek_total_ms": 179.68,
+        "export_sync_ms": 10.115,
+        "export_dispatch_ms": 0.03,
+        "export_total_ms": 8.477
+      },
+      {
+        "mode": "async_ops",
+        "seek_blocking_ms": 108.866,
+        "seek_dispatch_ms": 0.002,
+        "seek_total_ms": 181.42,
+        "export_sync_ms": 8.838,
+        "export_dispatch_ms": 0.027,
+        "export_total_ms": 7.587
+      },
+      {
+        "mode": "async_ops",
+        "seek_blocking_ms": 111.795,
+        "seek_dispatch_ms": 0.002,
+        "seek_total_ms": 175.449,
+        "export_sync_ms": 9.125,
+        "export_dispatch_ms": 0.024,
+        "export_total_ms": 7.955
+      }
+    ],
+    "overview": [
+      {
+        "slides": 2000,
+        "ms": 26.058,
+        "heap_bytes": 5105877,
+        "peak_heap_bytes": 9548689
+      },
+      {
+        "slides": 2000,
+        "ms": 21.751,
+        "heap_bytes": 5105877,
+        "peak_heap_bytes": 9548689
+      },
+      {
+        "slides": 2000,
+        "ms": 20.729,
+        "heap_bytes": 5103669,
+        "peak_heap_bytes": 9546481
+      }
+    ],
+    "idle": {
+      "idle_10s_before_callbacks": 1850,
+      "idle_10s_after_callbacks": 0,
+      "active_1s_callbacks": 164,
+      "burst_input_events": 1000,
+      "burst_renders": 1
+    }
+  },
+  "identical_pdf_pngs": {
+    "balanced_0_aud.png": true,
+    "balanced_0_notes.png": true,
+    "balanced_1_aud.png": true,
+    "balanced_1_notes.png": true,
+    "balanced_2_aud.png": true,
+    "balanced_2_notes.png": true,
+    "balanced_3_aud.png": true,
+    "balanced_3_notes.png": true,
+    "balanced_4_aud.png": true,
+    "balanced_4_notes.png": true,
+    "balanced_5_aud.png": true,
+    "balanced_5_notes.png": true,
+    "balanced_6_aud.png": true,
+    "balanced_6_notes.png": true,
+    "eco_0_aud.png": true,
+    "eco_0_notes.png": true,
+    "eco_1_aud.png": true,
+    "eco_1_notes.png": true,
+    "eco_2_aud.png": true,
+    "eco_2_notes.png": true,
+    "eco_3_aud.png": true,
+    "eco_3_notes.png": true,
+    "eco_4_aud.png": true,
+    "eco_4_notes.png": true,
+    "eco_5_aud.png": true,
+    "eco_5_notes.png": true,
+    "eco_6_aud.png": true,
+    "eco_6_notes.png": true,
+    "ultra_0_aud.png": true,
+    "ultra_0_notes.png": true,
+    "ultra_1_aud.png": true,
+    "ultra_1_notes.png": true,
+    "ultra_2_aud.png": true,
+    "ultra_2_notes.png": true,
+    "ultra_3_aud.png": true,
+    "ultra_3_notes.png": true,
+    "ultra_4_aud.png": true,
+    "ultra_4_notes.png": true,
+    "ultra_5_aud.png": true,
+    "ultra_5_notes.png": true,
+    "ultra_6_aud.png": true,
+    "ultra_6_notes.png": true
+  },
+  "deck_peak_rss_bytes": {
+    "before": 1656389632,
+    "after": 86786048
+  },
+  "release_reference_ink": [
+    {
+      "mode": "ink_reference",
+      "ms": 77.087,
+      "published_bytes": 1382400000,
+      "peak_heap_bytes": 17286879
+    },
+    {
+      "mode": "ink_reference",
+      "ms": 73.492,
+      "published_bytes": 1382400000,
+      "peak_heap_bytes": 17286879
+    },
+    {
+      "mode": "ink_reference",
+      "ms": 75.609,
+      "published_bytes": 1382400000,
+      "peak_heap_bytes": 17286879
+    }
+  ],
+  "debug_reference_ink": [
+    {
+      "mode": "ink_reference",
+      "ms": 421.225,
+      "published_bytes": 1382400000,
+      "peak_heap_bytes": 17286879
+    },
+    {
+      "mode": "ink_reference",
+      "ms": 422.811,
+      "published_bytes": 1382400000,
+      "peak_heap_bytes": 17286879
+    },
+    {
+      "mode": "ink_reference",
+      "ms": 420.996,
+      "published_bytes": 1382400000,
+      "peak_heap_bytes": 17286879
+    }
+  ],
+  "deck_peak_memory_footprint_bytes": {
+    "before": 2292631856,
+    "after": 88998464
+  },
+  "process_counter_method": "One separate /usr/bin/time -l deck run per version on macOS, outside the restricted sandbox.",
+  "environment": {
+    "architecture": "arm64",
+    "platform": "macOS",
+    "rustc": "1.99.0 (b940084d7 2026-09-28)",
+    "date": "2026-10-30"
+  }
+}

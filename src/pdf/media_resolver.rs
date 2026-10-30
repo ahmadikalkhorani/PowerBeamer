@@ -1,19 +1,18 @@
 #![allow(dead_code)]
+use super::beamer::MediaClip;
+use image::RgbaImage;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use image::RgbaImage;
-use super::beamer::MediaClip;
 
 /// Common media file extensions encountered in LaTeX Beamer presentations
 pub const MEDIA_EXTENSIONS: &[&str] = &[
-    "mp4", "webm", "mov", "mkv", "avi", "m4v", "ogv",
-    "mp3", "wav", "ogg", "flac", "m4a", "aac",
+    "mp4", "webm", "mov", "mkv", "avi", "m4v", "ogv", "mp3", "wav", "ogg", "flac", "m4a", "aac",
 ];
 
 /// Common subdirectories where LaTeX authors store presentation media assets
 pub const MEDIA_SUBDIRECTORIES: &[&str] = &[
-    "",             // Direct in presentation folder
+    "", // Direct in presentation folder
     "media",
     "videos",
     "video",
@@ -33,14 +32,7 @@ pub const MEDIA_SUBDIRECTORIES: &[&str] = &[
 
 /// Common build directory names used by latexmk, TeXstudio, VSCode LaTeX Workshop, etc.
 pub const BUILD_DIRECTORIES: &[&str] = &[
-    "build",
-    "out",
-    "output",
-    "dist",
-    "bin",
-    "aux",
-    ".aux",
-    "_build",
+    "build", "out", "output", "dist", "bin", "aux", ".aux", "_build",
 ];
 
 #[derive(Clone, Debug)]
@@ -50,6 +42,35 @@ pub struct CompanionFrame {
     pub media_paths: Vec<String>,
     pub media_rects: HashMap<String, [f32; 4]>,
     pub notes: String,
+}
+
+/// Parsed once for a deck; caches successful and failed path searches for its lifetime.
+pub struct MediaContext {
+    pub frames: Vec<CompanionFrame>,
+    pub media: HashMap<usize, Vec<String>>,
+    pub notes: HashMap<usize, String>,
+    paths: HashMap<String, Option<PathBuf>>,
+}
+impl MediaContext {
+    pub fn new(path: &Path) -> Self {
+        let frames = MediaResolver::scan_companion_frames(path);
+        let media = frames
+            .iter()
+            .filter(|f| !f.media_paths.is_empty())
+            .map(|f| (f.frame_index, f.media_paths.clone()))
+            .collect();
+        let notes = frames
+            .iter()
+            .filter(|f| !f.notes.is_empty())
+            .map(|f| (f.frame_index, f.notes.clone()))
+            .collect();
+        Self {
+            frames,
+            media,
+            notes,
+            paths: HashMap::new(),
+        }
+    }
 }
 
 pub struct MediaResolver;
@@ -109,7 +130,9 @@ impl MediaResolver {
 
         // 1. If path is already absolute and exists, return canonicalized path
         if input_path.is_absolute() && input_path.exists() {
-            return fs::canonicalize(input_path).ok().or_else(|| Some(input_path.to_path_buf()));
+            return fs::canonicalize(input_path)
+                .ok()
+                .or_else(|| Some(input_path.to_path_buf()));
         }
 
         // Determine candidate base directories (including parent if inside a build/ folder)
@@ -118,7 +141,10 @@ impl MediaResolver {
 
         // Check if base_dir is a known build directory (e.g. project/build -> check project/)
         if let Some(folder_name) = base_dir.file_name().and_then(|f| f.to_str()) {
-            if BUILD_DIRECTORIES.iter().any(|&b| b.eq_ignore_ascii_case(folder_name)) {
+            if BUILD_DIRECTORIES
+                .iter()
+                .any(|&b| b.eq_ignore_ascii_case(folder_name))
+            {
                 if let Some(parent) = base_dir.parent() {
                     candidate_bases.push(parent.to_path_buf());
                 }
@@ -137,7 +163,10 @@ impl MediaResolver {
             cleaned.trim_start_matches("./").to_string(),
         ];
 
-        let file_name = input_path.file_name().and_then(|f| f.to_str()).unwrap_or(&cleaned);
+        let file_name = input_path
+            .file_name()
+            .and_then(|f| f.to_str())
+            .unwrap_or(&cleaned);
 
         // 2. Cascade Search: Candidate base dirs × Standard media subdirectories × Rel variations
         for base in &candidate_bases {
@@ -195,7 +224,10 @@ impl MediaResolver {
                     }
                 } else if path.is_dir() {
                     if let Some(dirname) = path.file_name().and_then(|n| n.to_str()) {
-                        if !dirname.starts_with('.') && dirname != "target" && dirname != "node_modules" {
+                        if !dirname.starts_with('.')
+                            && dirname != "target"
+                            && dirname != "node_modules"
+                        {
                             subdirs.push(path);
                         }
                     }
@@ -203,7 +235,9 @@ impl MediaResolver {
             }
 
             for subdir in subdirs {
-                if let Some(found) = Self::find_file_shallow(&subdir, target_filename, max_depth - 1) {
+                if let Some(found) =
+                    Self::find_file_shallow(&subdir, target_filename, max_depth - 1)
+                {
                     return Some(found);
                 }
             }
@@ -214,7 +248,8 @@ impl MediaResolver {
 
     /// Detect MIME type from file extension
     pub fn detect_mime_type(path: &Path) -> String {
-        let ext = path.extension()
+        let ext = path
+            .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("")
             .to_ascii_lowercase();
@@ -245,9 +280,24 @@ impl MediaResolver {
         for word in words {
             // Trim surrounding punctuation and math delimiters
             let clean = word.trim_matches(|c: char| {
-                c == '(' || c == ')' || c == '[' || c == ']' || c == '{' || c == '}' ||
-                c == '"' || c == '\'' || c == ',' || c == ';' || c == '<' || c == '>' ||
-                c == '$' || c == '|' || c == '\\' || c == ':' || c == '`' || c == '~'
+                c == '('
+                    || c == ')'
+                    || c == '['
+                    || c == ']'
+                    || c == '{'
+                    || c == '}'
+                    || c == '"'
+                    || c == '\''
+                    || c == ','
+                    || c == ';'
+                    || c == '<'
+                    || c == '>'
+                    || c == '$'
+                    || c == '|'
+                    || c == '\\'
+                    || c == ':'
+                    || c == '`'
+                    || c == '~'
             });
 
             // Skip tokens that contain math operators, equation symbols, or TeX markup
@@ -272,7 +322,11 @@ impl MediaResolver {
                     let stem = &clean[..clean.len() - dot_ext.len()];
                     // Ensure the stem before .ext looks like a genuine file name (e.g. at least 1 alphanum,
                     // no odd punctuation, not pure symbols)
-                    if !stem.is_empty() && stem.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.') {
+                    if !stem.is_empty()
+                        && stem
+                            .chars()
+                            .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.')
+                    {
                         let cleaned_path = Self::clean_raw_path(clean);
                         if !cleaned_path.is_empty() && !results.contains(&cleaned_path) {
                             results.push(cleaned_path);
@@ -458,15 +512,21 @@ impl MediaResolver {
         let mut lines = Vec::new();
         for line in raw.lines() {
             let mut l = line.trim().to_string();
-            if l.starts_with("\\begin{itemize}") || l.starts_with("\\end{itemize}")
-                || l.starts_with("\\begin{enumerate}") || l.starts_with("\\end{enumerate}") {
+            if l.starts_with("\\begin{itemize}")
+                || l.starts_with("\\end{itemize}")
+                || l.starts_with("\\begin{enumerate}")
+                || l.starts_with("\\end{enumerate}")
+            {
                 continue;
             }
             if l.starts_with("\\item") {
                 l = format!("• {}", l.trim_start_matches("\\item").trim());
             }
             // Strip formatting wrappers
-            l = l.replace("\\textbf{", "").replace("\\textit{", "").replace("\\emph{", "");
+            l = l
+                .replace("\\textbf{", "")
+                .replace("\\textit{", "")
+                .replace("\\emph{", "");
             l = l.replace("\\\\", "\n");
             l = l.replace("}", "");
             l = l.trim().to_string();
@@ -547,7 +607,9 @@ impl MediaResolver {
                         let rem_after_poster = rem_after_first[end_idx..].trim_start();
                         // Next balanced brace is the target filename!
                         if rem_after_poster.starts_with('{') {
-                            if let Some(target) = Self::extract_first_balanced_brace(rem_after_poster) {
+                            if let Some(target) =
+                                Self::extract_first_balanced_brace(rem_after_poster)
+                            {
                                 let cleaned = Self::clean_raw_path(&target);
                                 if !cleaned.is_empty() {
                                     if !targets.contains(&cleaned) {
@@ -594,7 +656,9 @@ impl MediaResolver {
             let key_idx = opts.find(key)?;
             let rest = &opts[key_idx + key.len()..];
             let val_str = rest.trim_start_matches(|c| c == '=' || c == ' ');
-            let num_end = val_str.find(|c: char| !c.is_numeric() && c != '.').unwrap_or(val_str.len());
+            let num_end = val_str
+                .find(|c: char| !c.is_numeric() && c != '.')
+                .unwrap_or(val_str.len());
             let num: f32 = val_str[..num_end].parse().ok()?;
             let unit = &val_str[num_end..];
             if unit.starts_with("cm") {
@@ -667,6 +731,18 @@ impl MediaResolver {
         page_text: &str,
         companion_map: &HashMap<usize, Vec<String>>,
     ) -> Vec<MediaClip> {
+        let mut context = MediaContext::new(pdf_path);
+        context.media = companion_map.clone();
+        Self::resolve_page_clips_cached(pdf_path, page_index, page_text, &mut context)
+    }
+
+    pub fn resolve_page_clips_cached(
+        pdf_path: &Path,
+        page_index: usize,
+        page_text: &str,
+        context: &mut MediaContext,
+    ) -> Vec<MediaClip> {
+        let companion_map = &context.media;
         let base_dir = pdf_path.parent().unwrap_or(Path::new("."));
         let mut raw_candidates: Vec<String> = Vec::new();
 
@@ -679,8 +755,8 @@ impl MediaResolver {
         // pages to frame indices before calling us.)
 
         // 3. Match from companion frames by frame title if present in page text
-        let companion_frames = Self::scan_companion_frames(pdf_path);
-        for frame in &companion_frames {
+        let companion_frames = &context.frames;
+        for frame in companion_frames {
             if !frame.title.is_empty() && page_text.contains(&frame.title) {
                 for p in &frame.media_paths {
                     if !raw_candidates.contains(p) {
@@ -705,7 +781,11 @@ impl MediaResolver {
         let mut seen_canonical = Vec::new();
 
         for raw in raw_candidates {
-            let resolved_path_opt = Self::resolve_path(base_dir, &raw);
+            let resolved_path_opt = context
+                .paths
+                .entry(raw.clone())
+                .or_insert_with(|| Self::resolve_path(base_dir, &raw))
+                .clone();
             let is_resolved = resolved_path_opt.is_some();
 
             let canonical_str = if let Some(ref p) = resolved_path_opt {
@@ -889,5 +969,3 @@ mod tests {
         );
     }
 }
-
-

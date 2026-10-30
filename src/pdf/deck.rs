@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+use super::SlideImage;
 use super::beamer::MediaClip;
 use crate::ink::SlideInking;
 use image::{Rgba, RgbaImage};
@@ -7,9 +8,9 @@ use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RenderQuality {
-    Eco,        // 150 DPI
-    Balanced,   // 300 DPI
-    UltraVector,// 600 DPI
+    Eco,         // 150 DPI
+    Balanced,    // 300 DPI
+    UltraVector, // 600 DPI
 }
 
 impl RenderQuality {
@@ -43,9 +44,9 @@ impl RenderQuality {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct TocEntry {
     pub title: String,
-    pub page_index: usize,   // 1-indexed slide page
-    pub level: usize,        // 0 = section/top, 1 = subsection/slide
-    pub frame_index: usize,  // logical Beamer frame
+    pub page_index: usize,  // 1-indexed slide page
+    pub level: usize,       // 0 = section/top, 1 = subsection/slide
+    pub frame_index: usize, // logical Beamer frame
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -93,10 +94,10 @@ impl PdfLinkInfo {
 pub struct Slide {
     pub page_index: usize,
     pub physical_page_index: usize,
-    pub frame_index: usize,     // 1-indexed logical Beamer frame
-    pub total_frames: usize,    // total logical Beamer frames
-    pub overlay_step: usize,    // e.g. 1
-    pub overlay_total: usize,   // e.g. 3
+    pub frame_index: usize,   // 1-indexed logical Beamer frame
+    pub total_frames: usize,  // total logical Beamer frames
+    pub overlay_step: usize,  // e.g. 1
+    pub overlay_total: usize, // e.g. 3
     pub title: String,
     pub notes: String,
     pub is_whiteboard: bool,
@@ -105,24 +106,56 @@ pub struct Slide {
     pub media_clips: Vec<MediaClip>,
     pub inking: SlideInking,
     pub links: Vec<PdfLinkInfo>,
+    /// Optional bounding box [x, y, w, h] (normalized 0..1) for a spectrogram / waveform audio progress indicator
+    pub audio_progress_box: Option<[f32; 4]>,
     /// Fingerprint of the page's text (0 = none), used to re-identify a slide when the
     /// source PDF is rebuilt and pages shift.
     pub content_hash: u64,
-    // Rendered slide cache. Shared via `Arc`: the presenter image is usually the same
-    // pixels as the audience image, and cloning a slide must not duplicate megabytes.
-    pub audience_image: Arc<RgbaImage>,
-    pub presenter_image: Arc<RgbaImage>,
-    pub notes_image: Option<Arc<RgbaImage>>,
+    // Immutable, lossless slide assets share disk backing and a bounded pixel cache.
+    // Presenter and audience normally reference the same asset.
+    pub audience_image: Arc<SlideImage>,
+    pub presenter_image: Arc<SlideImage>,
+    pub notes_image: Option<Arc<SlideImage>>,
 }
 
 impl Slide {
+    /// An export snapshot shares immutable pixels and copies live annotations only.
+    pub fn export_snapshot(&self) -> Self {
+        Self {
+            page_index: self.page_index,
+            physical_page_index: self.physical_page_index,
+            frame_index: self.frame_index,
+            total_frames: self.total_frames,
+            overlay_step: self.overlay_step,
+            overlay_total: self.overlay_total,
+            title: self.title.clone(),
+            notes: self.notes.clone(),
+            is_whiteboard: self.is_whiteboard,
+            is_dual_screen: self.is_dual_screen,
+            aspect_ratio: self.aspect_ratio,
+            media_clips: self.media_clips.clone(),
+            inking: SlideInking {
+                strokes: self.inking.strokes.clone(),
+                ..Default::default()
+            },
+            links: self.links.clone(),
+            audio_progress_box: self.audio_progress_box,
+            content_hash: self.content_hash,
+            audience_image: self.audience_image.clone(),
+            presenter_image: self.presenter_image.clone(),
+            notes_image: self.notes_image.clone(),
+        }
+    }
+
     pub fn find_link_at(&self, x: f32, y: f32, padding: f32) -> Option<&PdfLinkInfo> {
         self.links.iter().find(|link| link.contains(x, y, padding))
     }
 
     /// Find the index of a media clip under the given normalized coordinate (x, y).
     pub fn find_media_clip_at(&self, x: f32, y: f32, tolerance: f32) -> Option<usize> {
-        self.media_clips.iter().position(|clip| clip.contains_point(x, y, tolerance))
+        self.media_clips
+            .iter()
+            .position(|clip| clip.contains_point(x, y, tolerance))
     }
 }
 
@@ -135,6 +168,16 @@ pub struct PresentationDeck {
 }
 
 impl PresentationDeck {
+    pub fn export_snapshot(&self) -> Self {
+        Self {
+            file_path: self.file_path.clone(),
+            slides: self.slides.iter().map(Slide::export_snapshot).collect(),
+            toc: self.toc.clone(),
+            current_index: self.current_index,
+            quality: self.quality,
+        }
+    }
+
     pub fn new_demo_deck(quality: RenderQuality) -> Self {
         let mut deck = Self {
             file_path: None,
@@ -222,8 +265,16 @@ impl PresentationDeck {
 
     /// Jump to next logical Beamer frame (skips remaining overlays in current frame)
     pub fn next_frame(&mut self) -> bool {
-        let current_frame = self.slides.get(self.current_index).map(|s| s.frame_index).unwrap_or(0);
-        if let Some(target_idx) = self.slides.iter().position(|s| s.frame_index > current_frame) {
+        let current_frame = self
+            .slides
+            .get(self.current_index)
+            .map(|s| s.frame_index)
+            .unwrap_or(0);
+        if let Some(target_idx) = self
+            .slides
+            .iter()
+            .position(|s| s.frame_index > current_frame)
+        {
             self.current_index = target_idx;
             true
         } else {
@@ -233,12 +284,20 @@ impl PresentationDeck {
 
     /// Jump to previous logical Beamer frame
     pub fn prev_frame(&mut self) -> bool {
-        let current_frame = self.slides.get(self.current_index).map(|s| s.frame_index).unwrap_or(1);
+        let current_frame = self
+            .slides
+            .get(self.current_index)
+            .map(|s| s.frame_index)
+            .unwrap_or(1);
         if current_frame <= 1 {
             return false;
         }
         let target_frame = current_frame - 1;
-        if let Some(target_idx) = self.slides.iter().position(|s| s.frame_index == target_frame) {
+        if let Some(target_idx) = self
+            .slides
+            .iter()
+            .position(|s| s.frame_index == target_frame)
+        {
             self.current_index = target_idx;
             true
         } else {
@@ -304,8 +363,9 @@ impl PresentationDeck {
             }
 
             // Contrast line color based on luminance
-            let luminance =
-                0.299 * (bg_rgba[0] as f32) + 0.587 * (bg_rgba[1] as f32) + 0.114 * (bg_rgba[2] as f32);
+            let luminance = 0.299 * (bg_rgba[0] as f32)
+                + 0.587 * (bg_rgba[1] as f32)
+                + 0.114 * (bg_rgba[2] as f32);
             let is_dark_bg = luminance < 128.0;
 
             let line_color = if is_dark_bg {
@@ -324,14 +384,23 @@ impl PresentationDeck {
                 ])
             };
 
+            // Pattern dimensions live in the same 1600px reference space as ink.
+            // Scaling them with the raster preserves visibility at every PDF DPI.
+            let scale = w as f32 / 1600.0;
+            let unit = |pixels: f32| (pixels * scale).round().max(1.0) as u32;
+            let line_width = unit(1.5);
             match template_kind {
                 "ruled" => {
                     // Horizontal rule lines
-                    let line_spacing: usize = 48;
-                    let top_margin = 96;
+                    let line_spacing = unit(48.0) as usize;
+                    let top_margin = unit(96.0);
                     for y in (top_margin..h).step_by(line_spacing) {
                         for x in 0..w {
-                            img.put_pixel(x, y, line_color);
+                            for offset in 0..line_width {
+                                if y + offset < h {
+                                    img.put_pixel(x, y + offset, line_color);
+                                }
+                            }
                         }
                     }
                     // Notebook vertical margin line
@@ -348,27 +417,55 @@ impl PresentationDeck {
                     }
                 }
                 "grid" => {
-                    let grid_spacing: usize = 40;
+                    let grid_spacing = unit(40.0) as usize;
                     for y in (0..h).step_by(grid_spacing) {
                         for x in 0..w {
-                            img.put_pixel(x, y, line_color);
+                            for offset in 0..line_width {
+                                if y + offset < h {
+                                    img.put_pixel(x, y + offset, line_color);
+                                }
+                            }
                         }
                     }
                     for x in (0..w).step_by(grid_spacing) {
                         for y in 0..h {
-                            img.put_pixel(x, y, line_color);
+                            for offset in 0..line_width {
+                                if x + offset < w {
+                                    img.put_pixel(x + offset, y, line_color);
+                                }
+                            }
                         }
                     }
                 }
                 "dotted" => {
-                    let dot_spacing: usize = 40;
-                    for y in (dot_spacing as u32..h).step_by(dot_spacing) {
-                        for x in (dot_spacing as u32..w).step_by(dot_spacing) {
-                            if x + 1 < w && y + 1 < h {
-                                img.put_pixel(x, y, line_color);
-                                img.put_pixel(x + 1, y, line_color);
-                                img.put_pixel(x, y + 1, line_color);
-                                img.put_pixel(x + 1, y + 1, line_color);
+                    let spacing = unit(40.0);
+                    let radius = (2.0 * scale).max(1.5);
+                    for y in (spacing..h).step_by(spacing as usize) {
+                        for x in (spacing..w).step_by(spacing as usize) {
+                            let r = radius.ceil() as i32;
+                            for dy in -r..=r {
+                                for dx in -r..=r {
+                                    let coverage = (radius + 0.5
+                                        - ((dx * dx + dy * dy) as f32).sqrt())
+                                    .clamp(0.0, 1.0);
+                                    let (px, py) = (x as i32 + dx, y as i32 + dy);
+                                    if coverage > 0.0
+                                        && px >= 0
+                                        && py >= 0
+                                        && px < w as i32
+                                        && py < h as i32
+                                    {
+                                        let mut color = bg_rgba;
+                                        for channel in 0..3 {
+                                            color[channel] = (bg_rgba[channel] as f32
+                                                * (1.0 - coverage)
+                                                + line_color[channel] as f32 * coverage)
+                                                .round()
+                                                as u8;
+                                        }
+                                        img.put_pixel(px as u32, py as u32, Rgba(color));
+                                    }
+                                }
                             }
                         }
                     }
@@ -378,7 +475,7 @@ impl PresentationDeck {
                 }
             }
 
-            let img = Arc::new(img);
+            let img = Arc::new(SlideImage::new(img));
             let pres = img.clone();
             let title = match template_kind {
                 "ruled" => format!("Ruled Note #{}", insert_idx + 1),
@@ -389,11 +486,17 @@ impl PresentationDeck {
             (img, pres, title)
         };
 
-        let (frame_idx, total_frames, step, steps) = if let Some(curr) = self.slides.get(self.current_index) {
-            (curr.frame_index, curr.total_frames, curr.overlay_step, curr.overlay_total)
-        } else {
-            (insert_idx + 1, insert_idx + 1, 1, 1)
-        };
+        let (frame_idx, total_frames, step, steps) =
+            if let Some(curr) = self.slides.get(self.current_index) {
+                (
+                    curr.frame_index,
+                    curr.total_frames,
+                    curr.overlay_step,
+                    curr.overlay_total,
+                )
+            } else {
+                (insert_idx + 1, insert_idx + 1, 1, 1)
+            };
 
         let slide = Slide {
             page_index: insert_idx + 1,
@@ -409,8 +512,9 @@ impl PresentationDeck {
             aspect_ratio,
             media_clips: Vec::new(),
             inking: SlideInking::new(),
-            content_hash: 0,
             links: Vec::new(),
+            audio_progress_box: None,
+            content_hash: 0,
             audience_image: aud_img,
             presenter_image: pres_img,
             notes_image: None,
@@ -485,14 +589,15 @@ impl PresentationDeck {
 
         let mut new_current = None;
         let mut out = Vec::with_capacity(fresh.len());
-        let mut push_inserted = |key: Option<usize>, out: &mut Vec<Slide>, new_current: &mut Option<usize>| {
-            for (old_idx, slide) in inserted_after.remove(&key).unwrap_or_default() {
-                if old_idx == old_current {
-                    *new_current = Some(out.len());
+        let mut push_inserted =
+            |key: Option<usize>, out: &mut Vec<Slide>, new_current: &mut Option<usize>| {
+                for (old_idx, slide) in inserted_after.remove(&key).unwrap_or_default() {
+                    if old_idx == old_current {
+                        *new_current = Some(out.len());
+                    }
+                    out.push(slide);
                 }
-                out.push(slide);
-            }
-        };
+            };
 
         push_inserted(None, &mut out, &mut new_current);
         for (mut slide, m) in fresh.into_iter().zip(matched) {
@@ -502,6 +607,7 @@ impl PresentationDeck {
             };
             let (old_idx, old_slide) = &mut old_pdf[k];
             slide.inking = std::mem::replace(&mut old_slide.inking, crate::ink::SlideInking::new());
+            slide.audio_progress_box = old_slide.audio_progress_box;
             if *old_idx == old_current {
                 new_current = Some(out.len());
             }
@@ -521,7 +627,9 @@ impl PresentationDeck {
         for (i, s) in out.iter_mut().enumerate() {
             s.page_index = i + 1;
         }
-        self.current_index = new_current.unwrap_or(old_current).min(out.len().saturating_sub(1));
+        self.current_index = new_current
+            .unwrap_or(old_current)
+            .min(out.len().saturating_sub(1));
         self.slides = out;
         self.toc = toc;
     }
@@ -532,7 +640,10 @@ impl PresentationDeck {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
         let mut any = false;
-        for c in text.chars().filter(|c| !c.is_ascii_digit() && !c.is_whitespace()) {
+        for c in text
+            .chars()
+            .filter(|c| !c.is_ascii_digit() && !c.is_whitespace())
+        {
             c.hash(&mut h);
             any = true;
         }
@@ -554,7 +665,7 @@ impl PresentationDeck {
         let (w, h) = (1600, 900);
 
         // Slide 1: Title Slide
-        let s1_img = Arc::new(render_demo_slide(
+        let s1_img = Arc::new(SlideImage::new_resident(render_demo_slide(
             w,
             h,
             "Advanced Quantum Field Theory & Computation",
@@ -566,7 +677,7 @@ impl PresentationDeck {
             ],
             "#0f172a",
             "#38bdf8",
-        ));
+        )));
         self.slides.push(Slide {
             page_index: 1,
             physical_page_index: 1,
@@ -581,18 +692,19 @@ impl PresentationDeck {
             aspect_ratio: 16.0 / 9.0,
             media_clips: Vec::new(),
             inking: SlideInking::new(),
-            content_hash: 0,
             links: vec![
                 PdfLinkInfo::new_url([0.05, 0.90, 0.35, 0.08], "https://github.com".to_string()),
                 PdfLinkInfo::new_page([0.80, 0.90, 0.16, 0.08], 1),
             ],
+            audio_progress_box: None,
+            content_hash: 0,
             presenter_image: s1_img.clone(),
             audience_image: s1_img,
             notes_image: None,
         });
 
         // Slide 2: Equations & Formulas Slide
-        let s2_img = Arc::new(render_demo_slide(
+        let s2_img = Arc::new(SlideImage::new_resident(render_demo_slide(
             w,
             h,
             "Yang-Mills Action & Path Integral Derivation",
@@ -605,7 +717,7 @@ impl PresentationDeck {
             ],
             "#1e1b4b",
             "#a855f7",
-        ));
+        )));
         self.slides.push(Slide {
             page_index: 2,
             physical_page_index: 2,
@@ -620,10 +732,11 @@ impl PresentationDeck {
             aspect_ratio: 16.0 / 9.0,
             media_clips: Vec::new(),
             inking: SlideInking::new(),
-            content_hash: 0,
             links: vec![
                 PdfLinkInfo::new_page([0.80, 0.90, 0.16, 0.08], 3),
             ],
+            audio_progress_box: None,
+            content_hash: 0,
             presenter_image: s2_img.clone(),
             audience_image: s2_img,
             notes_image: None,
@@ -633,7 +746,7 @@ impl PresentationDeck {
         // Dual screen has double width (3200 x 900)
         let _dual_w = 3200;
         let _dual_h = 900;
-        let s3_audience = Arc::new(render_demo_slide(
+        let s3_audience = Arc::new(SlideImage::new_resident(render_demo_slide(
             w,
             h,
             "Beamer pgfpages: Automatic Dual-Screen Detection",
@@ -646,7 +759,7 @@ impl PresentationDeck {
             ],
             "#064e3b",
             "#34d399",
-        ));
+        )));
         let s3_notes = render_demo_slide(
             w,
             h,
@@ -675,15 +788,16 @@ impl PresentationDeck {
             aspect_ratio: 16.0 / 9.0,
             media_clips: Vec::new(),
             inking: SlideInking::new(),
-            content_hash: 0,
             links: Vec::new(),
+            audio_progress_box: None,
+            content_hash: 0,
             presenter_image: s3_audience.clone(),
             audience_image: s3_audience,
-            notes_image: Some(Arc::new(s3_notes)),
+            notes_image: Some(Arc::new(SlideImage::new_resident(s3_notes))),
         });
 
         // Slide 4: Embedded Multimedia Demo
-        let s4_img = Arc::new(render_demo_slide(
+        let s4_img = Arc::new(SlideImage::new_resident(render_demo_slide(
             w,
             h,
             "Embedded Beamer Multimedia & Dynamic Video",
@@ -696,7 +810,7 @@ impl PresentationDeck {
             ],
             "#311042",
             "#f43f5e",
-        ));
+        )));
         self.slides.push(Slide {
             page_index: 4,
             physical_page_index: 4,
@@ -719,10 +833,11 @@ impl PresentationDeck {
                 is_resolved: false,
             }],
             inking: SlideInking::new(),
-            content_hash: 0,
             links: vec![
                 PdfLinkInfo::new_page([0.05, 0.90, 0.16, 0.08], 0),
             ],
+            audio_progress_box: None,
+            content_hash: 0,
             presenter_image: s4_img.clone(),
             audience_image: s4_img,
             notes_image: None,
@@ -792,7 +907,14 @@ fn render_demo_slide(
 
     // Draw decorative cards / LaTeX blocks
     draw_card(&mut img, 80, 80, w - 160, 160, Rgba([255, 255, 255, 15]));
-    draw_card(&mut img, 80, 270, w - 160, h - 350, Rgba([255, 255, 255, 10]));
+    draw_card(
+        &mut img,
+        80,
+        270,
+        w - 160,
+        h - 350,
+        Rgba([255, 255, 255, 10]),
+    );
 
     // Draw Beamer slide footer (Institute, Author, Date, Page)
     for y in (h - 36)..h {

@@ -47,7 +47,16 @@ pub struct Settings {
     pub timer_show_clock: Option<bool>,
     pub timer_size: Option<i32>,
     pub timer_start_on_advance: Option<bool>,
+
+    pub media_track_fps_mode: Option<i32>, // 0: Auto (Linked to quality), 1: 15 fps, 2: 30 fps, 3: 60 fps
+    pub media_track_show_audience_box: Option<bool>,
+    pub media_track_needle_width: Option<f32>, // 2.0, 3.0, 4.0
+    pub media_track_needle_glow: Option<bool>,
+    pub media_track_loop: Option<bool>,
 }
+
+static WRITER: std::sync::OnceLock<crate::work::LatestWorker<Settings>> =
+    std::sync::OnceLock::new();
 
 impl Settings {
     /// Platform config location, e.g. `~/Library/Application Support/PowerBeamer/settings.json`.
@@ -70,6 +79,25 @@ impl Settings {
             .and_then(|p| std::fs::read_to_string(p).ok())
             .and_then(|json| serde_json::from_str(&json).ok())
             .unwrap_or_default()
+    }
+
+    /// Latest-value worker serializes writes and never performs disk I/O on the UI thread.
+    pub fn save_background(&self) {
+        WRITER
+            .get_or_init(|| {
+                crate::work::LatestWorker::new(|_, settings: Settings, _| {
+                    if let Err(e) = settings.save() {
+                        eprintln!("Couldn't save settings: {e}");
+                    }
+                })
+            })
+            .submit(self.clone());
+    }
+
+    pub fn flush_saves() {
+        if let Some(writer) = WRITER.get() {
+            writer.flush();
+        }
     }
 
     /// Writes atomically (temp file + rename) so a crash never leaves a truncated file.

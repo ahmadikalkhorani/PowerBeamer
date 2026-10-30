@@ -7,7 +7,7 @@ cd "$DIR"
 echo "Building PowerBeamer macOS application bundle..."
 
 # 1. Compile native binary
-cargo build
+cargo build --release
 
 APP_DIR="target/PowerBeamer.app"
 CONTENTS="$APP_DIR/Contents"
@@ -19,10 +19,10 @@ rm -rf "$APP_DIR" "target/Presenter.app"
 mkdir -p "$MACOS" "$RESOURCES"
 
 # 3. Copy binary and libraries
-if [ -f "target/debug/powerbeamer" ]; then
-    cp target/debug/powerbeamer "$MACOS/powerbeamer"
-elif [ -f "target/debug/presenter" ]; then
-    cp target/debug/presenter "$MACOS/powerbeamer"
+if [ -f "target/release/powerbeamer" ]; then
+    cp target/release/powerbeamer "$MACOS/powerbeamer"
+elif [ -f "target/release/presenter" ]; then
+    cp target/release/presenter "$MACOS/powerbeamer"
 fi
 ln -sf powerbeamer "$MACOS/presenter"
 if [ -f "libpdfium.dylib" ]; then

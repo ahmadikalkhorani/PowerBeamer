@@ -308,7 +308,7 @@ mod tests {
 
         // 5. Save visual verification composite images
         let artifact_dir = artifact_dir();
-        let mut composite = (*test_slide.audience_image).clone();
+        let mut composite = (*test_slide.audience_image.pixels()).clone();
         let rendered_ink = InkingRasterizer::render_strokes(
             composite.width(),
             composite.height(),
@@ -485,7 +485,7 @@ mod tests {
         // 2. Rotate slide 3
         let old_w = deck.slides[2].audience_image.width();
         let old_h = deck.slides[2].audience_image.height();
-        deck.slides[2].audience_image = std::sync::Arc::new(image::imageops::rotate90(&*deck.slides[2].audience_image));
+        deck.slides[2].audience_image = std::sync::Arc::new(presenter::pdf::SlideImage::new(image::imageops::rotate90(&*deck.slides[2].audience_image.pixels())));
         assert_eq!(deck.slides[2].audience_image.width(), old_h);
         assert_eq!(deck.slides[2].audience_image.height(), old_w);
 
@@ -818,6 +818,7 @@ mod tests {
 
         // Test 1: Erase Highlight Only
         let mut opts = EraserOptions::default();
+        opts.erase_whole_line = true; // This test checks whole-stroke filtering.
         opts.erase_highlight_only = true;
         let erased = inking.erase_at_with_options(0.4, 0.4, &opts);
         assert!(erased);
@@ -2109,9 +2110,10 @@ mod tests {
                 media_clips: Vec::new(),
                 inking: presenter::ink::SlideInking::new(),
                 links: Vec::new(),
+                audio_progress_box: None,
                 content_hash: 0,
-                audience_image: std::sync::Arc::new(RgbaImage::new(100, 100)),
-                presenter_image: std::sync::Arc::new(RgbaImage::new(100, 100)),
+                audience_image: std::sync::Arc::new(presenter::pdf::SlideImage::new(RgbaImage::new(100, 100))),
+                presenter_image: std::sync::Arc::new(presenter::pdf::SlideImage::new(RgbaImage::new(100, 100))),
                 notes_image: None,
             });
         }
@@ -2978,5 +2980,40 @@ PRESENTER NOTES (Slide 1):\n\
         assert!(deck.slides[1].inking.strokes.is_empty());
         assert_eq!(deck.current_index, 2, "current slide follows its content too");
         assert_eq!(PresentationDeck::text_fingerprint("Intro 3 / 12"), PresentationDeck::text_fingerprint("Intro 4 / 13"));
+    }
+
+    #[test]
+    fn test_audio_progress_box_persistence_and_coordinate_mapping() {
+        use presenter::pdf::{PresentationDeck, RenderQuality};
+
+        let mut deck = PresentationDeck::new_demo_deck(RenderQuality::Eco);
+        let slide = deck.current_slide_mut();
+        assert!(slide.audio_progress_box.is_none());
+
+        // Define a spectrogram bounding box: [x, y, w, h] in slide relative coords (0.0..1.0)
+        let spec_box = [0.15_f32, 0.40_f32, 0.70_f32, 0.35_f32];
+        slide.audio_progress_box = Some(spec_box);
+        assert_eq!(slide.audio_progress_box, Some(spec_box));
+
+        // Test scan line needle x-coordinate calculation at different progress points
+        let needle_x_start = spec_box[0] + 0.0 * spec_box[2];
+        let needle_x_mid = spec_box[0] + 0.5 * spec_box[2];
+        let needle_x_end = spec_box[0] + 1.0 * spec_box[2];
+
+        assert!((needle_x_start - 0.15).abs() < 1e-5);
+        assert!((needle_x_mid - 0.50).abs() < 1e-5);
+        assert!((needle_x_end - 0.85).abs() < 1e-5);
+
+        // Verify preservation during PDF hot-reload
+        for (i, s) in deck.slides.iter_mut().enumerate() {
+            s.content_hash = 200 + i as u64;
+        }
+        let fresh = deck.slides.clone();
+        deck.merge_reloaded(fresh, Vec::new());
+        assert_eq!(deck.slides[0].audio_progress_box, Some(spec_box));
+
+        // Verify clearing the box
+        deck.current_slide_mut().audio_progress_box = None;
+        assert!(deck.current_slide().audio_progress_box.is_none());
     }
 }

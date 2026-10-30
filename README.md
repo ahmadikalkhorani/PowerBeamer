@@ -147,14 +147,14 @@ Most PDF presenters treat a Beamer deck as a pile of pages. PowerBeamer understa
 | `Z` | Zoom tool (drag a box) / reset zoom |
 | `1`–`5` | Select color slot |
 | `N` or `+` | Insert whiteboard slide |
-| `T` | Thumbnail overview |
+| `Tab` / `T` | Thumbnail overview |
 | `O` | Table-of-contents drawer |
 | `M` | Play / pause media |
 | `B` / `W` | Blackout / whiteout audience screen |
 | `S` | Swap presenter and audience screens |
 | `Cmd/Ctrl + Z` | Undo |
 | `Cmd/Ctrl + Shift + Z` / `Cmd/Ctrl + Y` | Redo |
-| `Esc` | Close drawers / exit |
+| `Esc` | Close the active drawer/menu, stop media, or leave end-of-show |
 
 ---
 
@@ -184,6 +184,12 @@ cargo build --release
 # Build standalone macOS application bundle (PowerBeamer.app)
 ./scripts/build_macos_app.sh
 ```
+
+---
+
+## Performance measurements
+
+See the [performance report](docs/performance/README.md) for measured memory and speed changes, quality checks, tradeoffs, and reproduction commands.
 
 ---
 

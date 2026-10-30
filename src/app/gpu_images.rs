@@ -4,6 +4,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::pdf::SlideImage;
 use image::RgbaImage;
 use slint::{Image, Rgba8Pixel, SharedPixelBuffer};
 
@@ -22,22 +23,22 @@ pub(crate) fn rgba_to_slint_image(img: &RgbaImage) -> Image {
 /// pixels alive. Replacing a slide's image (rotate, reload) naturally misses the cache.
 #[derive(Default)]
 pub(crate) struct GpuImageCache {
-    pub(crate) full: HashMap<usize, (std::sync::Weak<RgbaImage>, Image)>,
-    pub(crate) thumbs: HashMap<usize, (std::sync::Weak<RgbaImage>, Image)>,
+    pub(crate) full: HashMap<usize, (std::sync::Weak<SlideImage>, Image)>,
+    pub(crate) thumbs: HashMap<usize, (std::sync::Weak<SlideImage>, Image)>,
 }
 
 thread_local! {
     static GPU_CACHE: RefCell<GpuImageCache> = RefCell::new(GpuImageCache::default());
 }
 
-pub(crate) fn cache_key(img: &Arc<RgbaImage>) -> usize {
+pub(crate) fn cache_key(img: &Arc<SlideImage>) -> usize {
     Arc::as_ptr(img) as usize
 }
 
 pub(crate) fn cached_lookup(
-    map: &mut HashMap<usize, (std::sync::Weak<RgbaImage>, Image)>,
-    img: &Arc<RgbaImage>,
-    build: impl FnOnce(&RgbaImage) -> Image,
+    map: &mut HashMap<usize, (std::sync::Weak<SlideImage>, Image)>,
+    img: &Arc<SlideImage>,
+    build: impl FnOnce(&SlideImage) -> Image,
 ) -> Image {
     let key = cache_key(img);
     if let Some((_, i)) = map.get(&key) {
@@ -49,12 +50,13 @@ pub(crate) fn cached_lookup(
 }
 
 /// Full-resolution GPU image for slide pixels, converted on first use.
-pub(crate) fn cached_slint_image(img: &Arc<RgbaImage>) -> Image {
-    GPU_CACHE.with_borrow_mut(|c| cached_lookup(&mut c.full, img, rgba_to_slint_image))
+pub(crate) fn cached_slint_image(img: &Arc<SlideImage>) -> Image {
+    GPU_CACHE
+        .with_borrow_mut(|c| cached_lookup(&mut c.full, img, |i| rgba_to_slint_image(&i.pixels())))
 }
 
 /// Drops full-resolution GPU images except those for `keep` (and anything whose slide is gone).
-pub(crate) fn evict_gpu_images_except(keep: &[&Arc<RgbaImage>]) {
+pub(crate) fn evict_gpu_images_except(keep: &[&Arc<SlideImage>]) {
     let keep: Vec<usize> = keep.iter().map(|a| cache_key(a)).collect();
     GPU_CACHE.with_borrow_mut(|c| {
         c.full.retain(|k, _| keep.contains(k));
@@ -74,10 +76,7 @@ pub(crate) fn slide_presenter_image(s: &Slide) -> Image {
 pub(crate) fn slide_thumbnail_image(s: &Slide) -> Image {
     GPU_CACHE.with_borrow_mut(|c| {
         cached_lookup(&mut c.thumbs, &s.audience_image, |img| {
-            let aspect = img.height() as f32 / img.width().max(1) as f32;
-            let target_w = 320u32;
-            let target_h = (target_w as f32 * aspect).max(1.0) as u32;
-            rgba_to_slint_image(&image::imageops::thumbnail(img, target_w, target_h))
+            rgba_to_slint_image(img.thumbnail())
         })
     })
 }
@@ -98,11 +97,33 @@ pub(crate) fn end_of_deck_image() -> Image {
 
 pub(crate) fn update_slide_thumbnails_model(deck: &PresentationDeck, presenter: &PresenterWindow) {
     // Thumbnails are cached per slide, so this only rescales slides that are new or changed.
-    let thumbs: Vec<SlideThumbnail> = deck.slides.iter().enumerate().map(|(i, slide)| {
-        SlideThumbnail {
+    let thumbs: Vec<SlideThumbnail> = deck
+        .slides
+        .iter()
+        .enumerate()
+        .map(|(i, slide)| SlideThumbnail {
             index: (i + 1) as i32,
             image: slide_thumbnail_image(slide),
+        })
+        .collect();
+    thread_local! { static MODEL: RefCell<Option<std::rc::Rc<slint::VecModel<SlideThumbnail>>>> = const { RefCell::new(None) }; }
+    use slint::Model;
+    MODEL.with_borrow_mut(|stored| {
+        let model = stored.get_or_insert_with(|| std::rc::Rc::new(slint::VecModel::default()));
+        if model.row_count() != thumbs.len() {
+            model.set_vec(thumbs);
+        } else {
+            for (row, thumb) in thumbs.into_iter().enumerate() {
+                if model.row_data(row).as_ref() != Some(&thumb) {
+                    model.set_row_data(row, thumb);
+                }
+            }
         }
-    }).collect();
-    presenter.set_slide_thumbnails(std::rc::Rc::new(slint::VecModel::from(thumbs)).into());
+        presenter.set_slide_thumbnails(model.clone().into());
+    });
+}
+
+#[cfg(test)]
+pub(crate) fn full_cache_len() -> usize {
+    GPU_CACHE.with_borrow(|cache| cache.full.len())
 }

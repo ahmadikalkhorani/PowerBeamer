@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   viewBox="0 0 174.00021 206.43721"
+   width="174.00021"
+   height="206.43721"
+   version="1.1"
+   id="svg15"
+   sodipodi:docname="track-plot.svg"
+   inkscape:version="1.4.3 (0d15f75, 2025-12-25)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview15"
+     pagecolor="#505050"
+     bordercolor="#eeeeee"
+     borderopacity="1"
+     inkscape:showpageshadow="0"
+     inkscape:pageopacity="0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#505050"
+     inkscape:zoom="1.6080877"
+     inkscape:cx="8.3950646"
+     inkscape:cy="55.967097"
+     inkscape:window-width="1460"
+     inkscape:window-height="921"
+     inkscape:window-x="52"
+     inkscape:window-y="33"
+     inkscape:window-maximized="0"
+     inkscape:current-layer="svg15" />
+  <defs
+     id="defs3">
+    <marker
+       style="overflow:visible"
+       id="RoundedArrow"
+       refX="0"
+       refY="0"
+       orient="auto-start-reverse"
+       inkscape:stockid="Rounded arrow"
+       markerWidth="0.80000001"
+       markerHeight="0.80000001"
+       viewBox="0 0 1 1"
+       inkscape:isstock="true"
+       inkscape:collect="always"
+       preserveAspectRatio="xMidYMid">
+      <path
+         d="m 3.4825543,-2.873901 -4.4956038,2.24780197 a 0.7,0.7 0 0 0 0,1.25219806 L 3.4825543,2.873901 A 0.8652476,0.8652476 0 0 0 4.7347524,2.1 V -2.1 A 0.8652476,0.8652476 0 0 0 3.4825543,-2.873901 Z"
+         style="fill:context-stroke;fill-rule:evenodd;stroke:none;stroke-width:0.7"
+         id="path8" />
+    </marker>
+    <!-- Background Gradient -->
+    <linearGradient
+       id="bg-grad"
+       x1="8"
+       y1="8"
+       x2="8"
+       y2="248"
+       gradientUnits="userSpaceOnUse"
+       gradientTransform="translate(38.225496,38)">
+      <stop
+         offset="0%"
+         stop-color="#182436"
+         id="stop1" />
+      <stop
+         offset="100%"
+         stop-color="#0a0e17"
+         id="stop2" />
+    </linearGradient>
+    <!-- Soft Cyan Glow for Handles and UI Elements -->
+    <filter
+       id="cyan-glow"
+       y="-0.060769231"
+       height="1.1215385"
+       x="-inf"
+       width="inf">
+      <feGaussianBlur
+         stdDeviation="4"
+         result="blur"
+         id="feGaussianBlur2" />
+      <feMerge
+         id="feMerge3">
+        <feMergeNode
+           in="blur"
+           id="feMergeNode2" />
+        <feMergeNode
+           in="SourceGraphic"
+           id="feMergeNode3" />
+      </feMerge>
+    </filter>
+  </defs>
+  <!-- Outer Rounded Icon Frame -->
+  <!-- Dashed Selection Box (Split around Center Playhead) -->
+  <!-- Four Corner Handles -->
+  <!-- Bottom Dimension / Span Markers -->
+  <!-- Center Playhead Line and Top Triangle Marker -->
+  <line
+     x1="120"
+     y1="34"
+     x2="120"
+     y2="229"
+     stroke="#6ec6ff"
+     stroke-width="4.5"
+     stroke-linecap="round"
+     id="line16"
+     style="fill:#000000;stroke:#000000;filter:url(#cyan-glow)"
+     transform="matrix(1,0,0,-1,-229.94702,253.50747)" />
+  <rect
+     style="fill:none;fill-rule:evenodd;stroke:#000000;stroke-width:5;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:15, 15;paint-order:fill markers stroke"
+     id="rect17"
+     width="144.00009"
+     height="144.00011"
+     x="15.000012"
+     y="31.218538"
+     ry="2.2941468" />
+  <rect
+     style="fill:#ffffff;fill-rule:evenodd;stroke:#000000;stroke-width:4.13833;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;paint-order:fill markers stroke"
+     id="rect18"
+     width="20.861673"
+     height="20.861673"
+     x="2.069165"
+     y="18.287634"
+     rx="4.1383314"
+     ry="4.1383314" />
+  <rect
+     style="fill:#ffffff;fill-rule:evenodd;stroke:#000000;stroke-width:4.13833;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;paint-order:fill markers stroke"
+     id="rect19"
+     width="20.861673"
+     height="20.861673"
+     x="2.069165"
+     y="167.28792"
+     rx="4.1383314"
+     ry="4.1383314" />
+  <rect
+     style="fill:#ffffff;fill-rule:evenodd;stroke:#000000;stroke-width:4.13833;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;paint-order:fill markers stroke"
+     id="rect20"
+     width="20.861673"
+     height="20.861673"
+     x="151.06938"
+     y="167.28792"
+     rx="4.1383314"
+     ry="4.1383314" />
+  <rect
+     style="fill:#ffffff;fill-rule:evenodd;stroke:#000000;stroke-width:4.13833;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;paint-order:fill markers stroke"
+     id="rect21"
+     width="20.861673"
+     height="20.861673"
+     x="151.06938"
+     y="18.287634"
+     rx="4.1383314"
+     ry="4.1383314" />
+  <path
+     style="fill:#ffffff;fill-rule:evenodd;stroke:#000000;stroke-width:5;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;marker-start:url(#RoundedArrow);marker-end:url(#RoundedArrow);paint-order:fill markers stroke"
+     d="M 87.000097,18.93901 V 187.4982"
+     id="path21"
+     sodipodi:nodetypes="cc" />
+</svg>

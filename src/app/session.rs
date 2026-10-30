@@ -7,6 +7,7 @@ use chrono::Local;
 use slint::{ComponentHandle, SharedString};
 
 use super::context::AppContext;
+use super::scheduling::DemandTimer;
 use super::state::DeckLoadKind;
 use super::ui::*;
 use crate::pdf::RenderQuality;
@@ -14,7 +15,14 @@ use crate::timer::TimerStatus;
 
 /// Wires the clock tick and timer controls.
 pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
-    let AppContext { state, presenter_window, notes_window, update_slide_view, .. } = ctx;
+    let AppContext {
+        state,
+        presenter_window,
+        audience_window,
+        notes_window,
+        update_slide_view,
+        ..
+    } = ctx;
 
     // 1-second presentation timer tick
     let timer_tick = slint::Timer::default();
@@ -30,7 +38,10 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
             move || {
                 let mut st = state.borrow_mut();
                 // Start-on-first-advance: begin counting once the presenter leaves the armed slide
-                if st.timer_armed_at_slide.is_some_and(|slide| slide != st.deck.current_index) {
+                if st
+                    .timer_armed_at_slide
+                    .is_some_and(|slide| slide != st.deck.current_index)
+                {
                     st.timer_armed_at_slide = None;
                     st.timer.start();
                 }
@@ -43,15 +54,14 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                     TimerStatus::Overtime => 2,
                 };
                 let flash = timer_status == 2 && st.timer_flash_overtime && st.timer.is_running;
-                let (timer_running, timer_armed) = (st.timer.is_running, st.timer_armed_at_slide.is_some());
+                let (timer_running, timer_armed) =
+                    (st.timer.is_running, st.timer_armed_at_slide.is_some());
                 let now = Local::now().format("%I:%M %p").to_string();
 
                 // Persist preferences whenever any of them changed (cheap struct compare).
                 let current_settings = st.capture_settings();
                 if current_settings != *last_saved_settings.borrow() {
-                    if let Err(e) = current_settings.save() {
-                        eprintln!("Couldn't save settings: {}", e);
-                    }
+                    current_settings.save_background();
                     *last_saved_settings.borrow_mut() = current_settings;
                 }
 
@@ -61,30 +71,6 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                         st.media_duration_secs = d;
                         st.media_duration_pending = None;
                     }
-                }
-
-                let mut media_update = None;
-                let is_video_clip = {
-                    if let Some(clip) = st.active_clip().as_ref() {
-                        let path = &clip.file_path;
-                        !(path.ends_with(".mp3")
-                            || path.ends_with(".wav")
-                            || path.ends_with(".ogg")
-                            || path.ends_with(".flac")
-                            || path.ends_with(".m4a")
-                            || path.ends_with(".aac"))
-                    } else {
-                        false
-                    }
-                };
-                if st.media_playing && !is_video_clip {
-                    st.media_current_time_secs += 0.5 * st.media_speed;
-                    if st.media_current_time_secs >= st.media_duration_secs {
-                        st.media_current_time_secs = 0.0;
-                        st.media_playing = false;
-                    }
-                    st.media_progress = (st.media_current_time_secs / st.media_duration_secs).clamp(0.0, 1.0);
-                    media_update = Some((st.media_playing, st.media_progress, st.format_media_time()));
                 }
 
                 drop(st);
@@ -99,12 +85,6 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                     p.set_timer_armed(timer_armed);
                     // Overtime flash: alternate every 500ms tick
                     p.set_timer_flash_dim(flash && !p.get_timer_flash_dim());
-
-                    if let Some((playing, progress, time_text)) = media_update {
-                        p.set_media_playing(playing);
-                        p.set_media_progress(progress);
-                        p.set_media_time_text(SharedString::from(&time_text));
-                    }
                 }
                 if let Some(n) = notes_handle.upgrade() {
                     n.set_timer_str(SharedString::from(&elapsed));
@@ -112,6 +92,130 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
             },
         );
     }
+
+    // High-refresh audio playback and spectrogram tracking needle tick timer
+    let audio_tick = {
+        let presenter_handle = presenter_window.as_weak();
+        let audience_handle = audience_window.as_weak();
+        let state = state.clone();
+        let mut last_tick = std::time::Instant::now();
+        let mut accum_dt = 0.0f32;
+
+        let active_state = state.clone();
+        DemandTimer::new(
+            Duration::from_millis(16),
+            move || {
+                let st = active_state.borrow();
+                st.media_playing && st.active_clip().is_some_and(|c| c.is_audio())
+            },
+            move || {
+                let now = std::time::Instant::now();
+                let dt = now.duration_since(last_tick).as_secs_f32().min(0.2);
+                last_tick = now;
+
+                let mut st = state.borrow_mut();
+                if !st.media_playing {
+                    accum_dt = 0.0;
+                    return;
+                }
+
+                let is_video_clip = {
+                    if let Some(clip) = st.active_clip().as_ref() {
+                        let path = &clip.file_path;
+                        !(path.ends_with(".mp3")
+                            || path.ends_with(".wav")
+                            || path.ends_with(".ogg")
+                            || path.ends_with(".flac")
+                            || path.ends_with(".m4a")
+                            || path.ends_with(".aac"))
+                    } else {
+                        false
+                    }
+                };
+
+                // Video frames drive their own progress in `InPlaceVideoPlayer`
+                if is_video_clip {
+                    accum_dt = 0.0;
+                    return;
+                }
+
+                // Target interval based on FPS mode or presentation quality:
+                // mode 0: Auto (Eco = 15 fps / 66ms, Balanced = 30 fps / 33ms, Ultra = 60 fps / 16ms)
+                // mode 1: 15 fps (66ms)
+                // mode 2: 30 fps (33ms)
+                // mode 3: 60 fps (16ms)
+                let min_interval = match st.media_track_fps_mode {
+                    1 => 0.066,
+                    2 => 0.033,
+                    3 => 0.016,
+                    _ => match st.deck.quality {
+                        RenderQuality::Eco => 0.066,
+                        RenderQuality::Balanced => 0.033,
+                        RenderQuality::UltraVector => 0.016,
+                    },
+                };
+
+                accum_dt += dt;
+                if accum_dt < min_interval {
+                    return;
+                }
+                let step = accum_dt;
+                accum_dt = 0.0;
+
+                // Advance audio playback time accurately synchronized with process initialization
+                let speed = st.media_speed;
+                if let Some(start_instant) = st.media_playback_started {
+                    // ffplay process startup + CoreAudio/device buffer initialization typically takes ~180ms
+                    const AUDIO_PROCESS_INIT_LATENCY_SECS: f32 = 0.18;
+                    let elapsed = start_instant.elapsed().as_secs_f32();
+                    let effective_elapsed = (elapsed - AUDIO_PROCESS_INIT_LATENCY_SECS).max(0.0);
+                    st.media_current_time_secs =
+                        st.media_playback_start_offset + (effective_elapsed * speed);
+                } else {
+                    st.media_current_time_secs += step * speed;
+                }
+
+                let mut restart_loop = false;
+                if st.media_duration_secs > 0.0
+                    && st.media_current_time_secs >= st.media_duration_secs
+                {
+                    if st.media_track_loop {
+                        restart_loop = true;
+                        st.media_current_time_secs = 0.0;
+                        st.media_playback_started = Some(std::time::Instant::now());
+                        st.media_playback_start_offset = 0.0;
+                    } else {
+                        st.media_current_time_secs = 0.0;
+                        st.media_playing = false;
+                        st.media_playback_started = None;
+                    }
+                }
+
+                let progress = if st.media_duration_secs > 0.0 {
+                    (st.media_current_time_secs / st.media_duration_secs).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                st.media_progress = progress;
+                let playing = st.media_playing;
+                let time_text = st.format_media_time();
+
+                drop(st);
+
+                if let Some(p) = presenter_handle.upgrade() {
+                    p.set_media_playing(playing);
+                    p.set_media_progress(progress);
+                    p.set_media_time_text(SharedString::from(&time_text));
+                    if restart_loop { p.invoke_seek_media(0.0); }
+                }
+                if let Some(a) = audience_handle.upgrade() {
+                    a.set_media_playing(playing);
+                    a.set_media_progress(progress);
+                }
+            },
+        )
+    };
+    *ctx.audio_tick.borrow_mut() = Some(audio_tick);
 
     // --- TIMER TOGGLE & RESET ---
     {
@@ -142,7 +246,9 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
         let state = state.clone();
         let presenter_handle = presenter_window.as_weak();
         presenter_window.on_timer_options_changed(move || {
-            let Some(p) = presenter_handle.upgrade() else { return };
+            let Some(p) = presenter_handle.upgrade() else {
+                return;
+            };
             let mut st = state.borrow_mut();
             st.timer_countdown = p.get_timer_countdown();
             st.timer_duration_min = p.get_timer_duration_min().clamp(1, 600);

@@ -13,3 +13,5 @@ pub use media_resolver::*;
 pub use pdfium_loader::*;
 pub use pptx_engine::*;
 
+pub mod slide_image;
+pub use slide_image::SlideImage;

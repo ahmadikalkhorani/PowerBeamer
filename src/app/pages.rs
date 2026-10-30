@@ -9,7 +9,12 @@ use super::gpu_images::*;
 
 /// Wires page-management callbacks.
 pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
-    let AppContext { state, presenter_window, update_slide_view, .. } = ctx;
+    let AppContext {
+        state,
+        presenter_window,
+        update_slide_view,
+        ..
+    } = ctx;
 
     // --- ADD WHITEBOARD PAGE (+) / (N) ---
     {
@@ -21,7 +26,10 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
             st.is_end_of_show = false;
             st.blank_mode = 0;
             st.deck.insert_whiteboard_slide(true); // Blackboard with grid dots
-            println!("Inserted new whiteboard scratchpad page at index {}", st.deck.current_index + 1);
+            println!(
+                "Inserted new whiteboard scratchpad page at index {}",
+                st.deck.current_index + 1
+            );
             drop(st);
             update();
             if let Some(p) = presenter_handle.upgrade() {
@@ -41,6 +49,7 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
             if st.deck.slides.len() > 1 {
                 let remove_idx = (idx - 1).clamp(0, st.deck.slides.len() as i32 - 1) as usize;
                 st.deck.slides.remove(remove_idx);
+                if remove_idx < st.deck.current_index { st.deck.current_index -= 1; }
                 // Re-index slides
                 for (i, s) in st.deck.slides.iter_mut().enumerate() {
                     s.page_index = i + 1;
@@ -92,14 +101,19 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
             let mut st = state.borrow_mut();
             let target_idx = (idx - 1).clamp(0, st.deck.slides.len() as i32 - 1) as usize;
             let slide = &mut st.deck.slides[target_idx];
-            let rotated = Arc::new(image::imageops::rotate90(&*slide.audience_image));
+            let rotated = Arc::new(crate::pdf::SlideImage::new(image::imageops::rotate90(
+                &*slide.audience_image.pixels(),
+            )));
             slide.presenter_image = if Arc::ptr_eq(&slide.presenter_image, &slide.audience_image) {
                 rotated.clone()
             } else {
-                Arc::new(image::imageops::rotate90(&*slide.presenter_image))
+                Arc::new(crate::pdf::SlideImage::new(image::imageops::rotate90(
+                    &*slide.presenter_image.pixels(),
+                )))
             };
             slide.audience_image = rotated;
-            slide.aspect_ratio = slide.audience_image.width() as f32 / slide.audience_image.height() as f32;
+            slide.aspect_ratio =
+                slide.audience_image.width() as f32 / slide.audience_image.height() as f32;
             drop(st);
             update();
             if let Some(p) = presenter_handle.upgrade() {
@@ -122,10 +136,17 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
             let bg_rgba = [r, g, b, a];
 
             let mut st = state.borrow_mut();
-            let new_idx = st.deck.insert_page_with_template(pos_mode as usize, template_kind.as_str(), bg_rgba);
+            let new_idx = st.deck.insert_page_with_template(
+                pos_mode as usize,
+                template_kind.as_str(),
+                bg_rgba,
+            );
             println!(
                 "Inserted new page (template: '{}', bg: {:?}, pos_mode: {}) at index {}",
-                template_kind, bg_rgba, pos_mode, new_idx + 1
+                template_kind,
+                bg_rgba,
+                pos_mode,
+                new_idx + 1
             );
             drop(st);
             update();
@@ -144,7 +165,12 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
         presenter_window.on_move_slide(move |from_slide, to_slide| {
             let mut st = state.borrow_mut();
             let total = st.deck.slides.len() as i32;
-            if from_slide >= 1 && from_slide <= total && to_slide >= 1 && to_slide <= total && from_slide != to_slide {
+            if from_slide >= 1
+                && from_slide <= total
+                && to_slide >= 1
+                && to_slide <= total
+                && from_slide != to_slide
+            {
                 let from_idx = (from_slide - 1) as usize;
                 let to_idx = (to_slide - 1) as usize;
                 if st.deck.move_slide(from_idx, to_idx) {

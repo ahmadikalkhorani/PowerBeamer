@@ -14,3 +14,8 @@ pub(crate) mod ui;
 pub(crate) mod updates;
 pub(crate) mod view;
 pub(crate) mod windows;
+
+pub(crate) mod scheduling;
+
+#[cfg(test)]
+mod perf_tests;

@@ -49,7 +49,18 @@ impl PdfiumLoader {
     }
 
     /// Complete deck loader returning slides with Beamer frame overlays and extracted TOC outline
-    pub fn load_deck_from_file(path: &Path, quality: RenderQuality) -> Result<(Vec<Slide>, Vec<TocEntry>), String> {
+    pub fn load_deck_from_file(
+        path: &Path,
+        quality: RenderQuality,
+    ) -> Result<(Vec<Slide>, Vec<TocEntry>), String> {
+        Self::load_deck_cancellable(path, quality, &|| false)
+    }
+
+    pub fn load_deck_cancellable(
+        path: &Path,
+        quality: RenderQuality,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<(Vec<Slide>, Vec<TocEntry>), String> {
         if !path.exists() {
             return Err(format!("File does not exist: {}", path.display()));
         }
@@ -70,6 +81,9 @@ impl PdfiumLoader {
         let mut page_texts = Vec::with_capacity(num_pages);
 
         for page in doc.pages().iter() {
+            if cancelled() {
+                return Err("load cancelled".into());
+            }
             page_sizes.push((page.width().value, page.height().value));
             page_labels.push(page.label().map(|s| s.to_string()));
             let text = page.text().map(|t| t.all()).unwrap_or_default();
@@ -100,16 +114,22 @@ impl PdfiumLoader {
         }
 
         let pdf_has_media_annotations = doc.pages().iter().any(|page| {
-            page.annotations().iter().any(|a| is_media_annotation(a.annotation_type()))
+            page.annotations()
+                .iter()
+                .any(|a| is_media_annotation(a.annotation_type()))
         });
 
         let mut slides = Vec::with_capacity(mappings.len());
         let dpi = quality.dpi();
-        let companion_tex_map = crate::pdf::MediaResolver::scan_companion_tex(path);
-        let companion_notes_map = crate::pdf::MediaResolver::scan_companion_tex_notes(path);
+        let mut media_context = super::media_resolver::MediaContext::new(path);
 
         for m in &mappings {
-            let slide_page = doc.pages().get(m.slide_page_idx as i32)
+            if cancelled() {
+                return Err("load cancelled".into());
+            }
+            let slide_page = doc
+                .pages()
+                .get(m.slide_page_idx as i32)
                 .map_err(|e| format!("Failed to get page {}: {:?}", m.slide_page_idx + 1, e))?;
             let page_width = slide_page.width().value;
             let page_height = slide_page.height().value;
@@ -119,9 +139,9 @@ impl PdfiumLoader {
                 .set_target_width((page_width * (dpi / 72.0)) as i32)
                 .set_target_height((page_height * (dpi / 72.0)) as i32);
 
-            let rendered_bitmap = slide_page
-                .render_with_config(&render_config)
-                .map_err(|e| format!("Rendering error on page {}: {:?}", m.slide_page_idx + 1, e))?;
+            let rendered_bitmap = slide_page.render_with_config(&render_config).map_err(|e| {
+                format!("Rendering error on page {}: {:?}", m.slide_page_idx + 1, e)
+            })?;
 
             let dynamic_img = rendered_bitmap
                 .as_image()
@@ -136,25 +156,32 @@ impl PdfiumLoader {
                 if is_vertical {
                     let half_w = w / 2;
                     let left = image::imageops::crop_imm(&rgba_img, 0, 0, half_w, h).to_image();
-                    let right = image::imageops::crop_imm(&rgba_img, half_w, 0, half_w, h).to_image();
+                    let right =
+                        image::imageops::crop_imm(&rgba_img, half_w, 0, half_w, h).to_image();
                     (left, Some(right))
                 } else {
                     let half_h = h / 2;
                     let top = image::imageops::crop_imm(&rgba_img, 0, 0, w, half_h).to_image();
-                    let bottom = image::imageops::crop_imm(&rgba_img, 0, half_h, w, half_h).to_image();
+                    let bottom =
+                        image::imageops::crop_imm(&rgba_img, 0, half_h, w, half_h).to_image();
                     (top, Some(bottom))
                 }
             } else if let Some(note_p_idx) = m.note_page_idx {
-                let note_page = doc.pages().get(note_p_idx as i32)
+                let note_page = doc
+                    .pages()
+                    .get(note_p_idx as i32)
                     .map_err(|e| format!("Failed to get note page {}: {:?}", note_p_idx + 1, e))?;
                 let nw = note_page.width().value;
                 let nh = note_page.height().value;
                 let note_render_config = PdfRenderConfig::new()
                     .set_target_width((nw * (dpi / 72.0)) as i32)
                     .set_target_height((nh * (dpi / 72.0)) as i32);
-                let note_bitmap = note_page
-                    .render_with_config(&note_render_config)
-                    .map_err(|e| format!("Rendering error on note page {}: {:?}", note_p_idx + 1, e))?;
+                let note_bitmap =
+                    note_page
+                        .render_with_config(&note_render_config)
+                        .map_err(|e| {
+                            format!("Rendering error on note page {}: {:?}", note_p_idx + 1, e)
+                        })?;
                 let note_dynamic = note_bitmap
                     .as_image()
                     .map_err(|e| format!("Image conversion error: {:?}", e))?;
@@ -164,13 +191,14 @@ impl PdfiumLoader {
             };
 
             // Extract text and annotations for notes
-            let mut extracted_notes = if let Some(tex_note) = companion_notes_map.get(&m.slide_index) {
-                tex_note.clone()
-            } else if let Some(tex_note) = companion_notes_map.get(&(m.slide_page_idx + 1)) {
-                tex_note.clone()
-            } else {
-                String::new()
-            };
+            let mut extracted_notes =
+                if let Some(tex_note) = media_context.notes.get(&m.slide_index) {
+                    tex_note.clone()
+                } else if let Some(tex_note) = media_context.notes.get(&(m.slide_page_idx + 1)) {
+                    tex_note.clone()
+                } else {
+                    String::new()
+                };
 
             if let Some(note_p_idx) = m.note_page_idx {
                 let note_text = &page_texts[note_p_idx];
@@ -183,7 +211,9 @@ impl PdfiumLoader {
             }
 
             let page_text = &page_texts[m.slide_page_idx];
-            if extracted_notes.is_empty() && (page_text.contains("NOTES") || page_text.contains("Note")) {
+            if extracted_notes.is_empty()
+                && (page_text.contains("NOTES") || page_text.contains("Note"))
+            {
                 extracted_notes = page_text.clone();
             }
 
@@ -202,24 +232,30 @@ impl PdfiumLoader {
                 if notes_img.is_some() {
                     extracted_notes = "BEAMER SPEAKER NOTE:\n• High-resolution visual note slide is rendered above.".to_string();
                 } else {
-                    extracted_notes = format!("Beamer Slide {} - Speaker Notes\n• Tap to write comments, derivations, and practice reminders here.", m.slide_index);
+                    extracted_notes = format!(
+                        "Beamer Slide {} - Speaker Notes\n• Tap to write comments, derivations, and practice reminders here.",
+                        m.slide_index
+                    );
                 }
             }
 
             // Detect and resolve media clips
-            let mut media_clips = crate::pdf::MediaResolver::resolve_page_clips(
+            let mut media_clips = crate::pdf::MediaResolver::resolve_page_clips_cached(
                 path,
                 m.slide_index,
                 page_text,
-                &companion_tex_map,
+                &mut media_context,
             );
             // Physical-page lookup only makes sense without a .tex frame mapping to go by.
-            if media_clips.is_empty() && companion_tex_map.is_empty() && m.slide_page_idx + 1 != m.slide_index {
-                media_clips = crate::pdf::MediaResolver::resolve_page_clips(
+            if media_clips.is_empty()
+                && media_context.media.is_empty()
+                && m.slide_page_idx + 1 != m.slide_index
+            {
+                media_clips = crate::pdf::MediaResolver::resolve_page_clips_cached(
                     path,
                     m.slide_page_idx + 1,
                     page_text,
-                    &companion_tex_map,
+                    &mut media_context,
                 );
             }
 
@@ -243,17 +279,22 @@ impl PdfiumLoader {
             for (i, clip) in media_clips.iter_mut().enumerate() {
                 clip.rect = match media_rects.get(i) {
                     Some(exact) => *exact,
-                    None => crate::pdf::MediaResolver::refine_media_rect_from_image(&audience_img, clip.rect),
+                    None => crate::pdf::MediaResolver::refine_media_rect_from_image(
+                        &audience_img,
+                        clip.rect,
+                    ),
                 };
             }
 
             let slide_aspect = audience_img.width() as f32 / audience_img.height() as f32;
-            let audience_img = std::sync::Arc::new(audience_img);
+            let audience_img = std::sync::Arc::new(super::SlideImage::new(audience_img));
 
             // Extract interactive links from PDF slide page
             let mut extracted_links = Vec::new();
             for link in slide_page.links().iter() {
-                let Ok(rect) = link.rect() else { continue; };
+                let Ok(rect) = link.rect() else {
+                    continue;
+                };
                 if rect.width().value <= 0.0 || rect.height().value <= 0.0 {
                     continue;
                 }
@@ -275,7 +316,10 @@ impl PdfiumLoader {
                             if let Ok(dest) = d.destination() {
                                 if let Ok(p_idx) = dest.page_index() {
                                     let raw_p = p_idx as usize;
-                                    let mapped_p = page_to_slide_map.get(&raw_p).copied().unwrap_or(raw_p.min(mappings.len().saturating_sub(1)));
+                                    let mapped_p = page_to_slide_map
+                                        .get(&raw_p)
+                                        .copied()
+                                        .unwrap_or(raw_p.min(mappings.len().saturating_sub(1)));
                                     Some(PdfLinkTarget::Page(mapped_p))
                                 } else {
                                     None
@@ -294,14 +338,19 @@ impl PdfiumLoader {
                     if let Some(dest) = link.destination() {
                         if let Ok(p_idx) = dest.page_index() {
                             let raw_p = p_idx as usize;
-                            let mapped_p = page_to_slide_map.get(&raw_p).copied().unwrap_or(raw_p.min(mappings.len().saturating_sub(1)));
+                            let mapped_p = page_to_slide_map
+                                .get(&raw_p)
+                                .copied()
+                                .unwrap_or(raw_p.min(mappings.len().saturating_sub(1)));
                             return Some(PdfLinkTarget::Page(mapped_p));
                         }
                     }
                     None
                 });
 
-                let Some(target) = target else { continue; };
+                let Some(target) = target else {
+                    continue;
+                };
 
                 let Some([norm_x, norm_y, norm_w, norm_h]) =
                     normalize_page_rect(&rect, page_width, page_height, is_dual_mode)
@@ -336,10 +385,12 @@ impl PdfiumLoader {
                 media_clips,
                 inking: SlideInking::new(),
                 links: extracted_links,
+                audio_progress_box: None,
                 content_hash: super::deck::PresentationDeck::text_fingerprint(page_text),
                 presenter_image: audience_img.clone(),
                 audience_image: audience_img,
-                notes_image: notes_img.map(std::sync::Arc::new),
+                notes_image: notes_img
+                    .map(|img| std::sync::Arc::new(super::SlideImage::new_notes(img))),
             });
         }
 
@@ -421,7 +472,10 @@ impl PdfiumLoader {
                 if seen_frames.insert(slide.frame_index) {
                     let title = if slide.title.is_empty() || slide.title.starts_with("Slide ") {
                         if slide.overlay_total > 1 {
-                            format!("Frame {} ({} overlays)", slide.frame_index, slide.overlay_total)
+                            format!(
+                                "Frame {} ({} overlays)",
+                                slide.frame_index, slide.overlay_total
+                            )
                         } else {
                             format!("Frame {}", slide.frame_index)
                         }
@@ -501,11 +555,7 @@ impl PdfiumLoader {
             }
         }
 
-        if toc.is_empty() {
-            None
-        } else {
-            Some(toc)
-        }
+        if toc.is_empty() { None } else { Some(toc) }
     }
 
     /// Extract arguments inside curly braces {arg1}{arg2}... from a LaTeX command line
@@ -538,10 +588,14 @@ impl PdfiumLoader {
     }
 }
 
-
 /// Converts a PDF-space rectangle (origin bottom-left, points) into normalized `[x, y, w, h]`
 /// over the audience half of the page. Returns `None` when it lies on the notes half.
-fn normalize_page_rect(rect: &PdfRect, page_width: f32, page_height: f32, is_dual_mode: Option<bool>) -> Option<[f32; 4]> {
+fn normalize_page_rect(
+    rect: &PdfRect,
+    page_width: f32,
+    page_height: f32,
+    is_dual_mode: Option<bool>,
+) -> Option<[f32; 4]> {
     let rx = rect.left().value;
     let ry_bottom = rect.bottom().value;
     let rw = rect.width().value;
@@ -582,6 +636,8 @@ fn normalize_page_rect(rect: &PdfRect, page_width: f32, page_height: f32, is_dua
 fn is_media_annotation(kind: PdfPageAnnotationType) -> bool {
     matches!(
         kind,
-        PdfPageAnnotationType::Movie | PdfPageAnnotationType::Screen | PdfPageAnnotationType::RichMedia
+        PdfPageAnnotationType::Movie
+            | PdfPageAnnotationType::Screen
+            | PdfPageAnnotationType::RichMedia
     )
 }

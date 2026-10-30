@@ -6,7 +6,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use image::RgbaImage;
-use slint::{ComponentHandle, Image, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
+use slint::{
+    ComponentHandle, Image, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel,
+};
 
 use super::gpu_images::*;
 use super::state::*;
@@ -21,9 +23,20 @@ fn laser_band_rows(bands: &[ink::LaserBandPath]) -> Vec<LaserBand> {
     (0..ink::LASER_BAND_COUNT)
         .map(|level| {
             let intensity = (level + 1) as f32 / ink::LASER_BAND_COUNT as f32;
-            match bands.iter().find(|b| (b.intensity - intensity).abs() < 1e-4) {
-                Some(b) => LaserBand { commands: b.commands.as_str().into(), intensity: b.intensity, radius: b.radius },
-                None => LaserBand { commands: SharedString::new(), intensity, radius: 0.0 },
+            match bands
+                .iter()
+                .find(|b| (b.intensity - intensity).abs() < 1e-4)
+            {
+                Some(b) => LaserBand {
+                    commands: b.commands.as_str().into(),
+                    intensity: b.intensity,
+                    radius: b.radius,
+                },
+                None => LaserBand {
+                    commands: SharedString::new(),
+                    intensity,
+                    radius: 0.0,
+                },
             }
         })
         .collect()
@@ -60,7 +73,11 @@ pub(crate) fn build_ink_overlay(
 
             // The laser lives in its own small layer cropped to the trail, so pointing never
             // re-copies or re-uploads the full-size ink overlay.
-            let bands = st.laser_trail.as_ref().map(InkingRasterizer::laser_trail_bands).unwrap_or_default();
+            let bands = st
+                .laser_trail
+                .as_ref()
+                .map(InkingRasterizer::laser_trail_bands)
+                .unwrap_or_default();
             for (row, band) in laser_band_rows(&bands).into_iter().enumerate() {
                 if laser_bands.row_data(row).as_ref() != Some(&band) {
                     laser_bands.set_row_data(row, band);
@@ -68,16 +85,40 @@ pub(crate) fn build_ink_overlay(
             }
 
             // The comet-tail mode (no lines) is still rasterized into its own small layer
-            let laser_layer = st.laser_trail.as_ref().filter(|trail| !trail.draw_lines).and_then(|trail| {
-                let (x0, y0, x1, y1) = InkingRasterizer::laser_trail_bounds(trail, overlay_w, overlay_h)?;
-                let (bw, bh) = (x1 - x0, y1 - y0);
-                let mut buffer = SharedPixelBuffer::<Rgba8Pixel>::new(bw, bh);
-                let mut canvas = image::ImageBuffer::<image::Rgba<u8>, &mut [u8]>::from_raw(bw, bh, buffer.make_mut_bytes())
+            let laser_layer = st
+                .laser_trail
+                .as_ref()
+                .filter(|trail| !trail.draw_lines)
+                .and_then(|trail| {
+                    let (x0, y0, x1, y1) =
+                        InkingRasterizer::laser_trail_bounds(trail, overlay_w, overlay_h)?;
+                    let (bw, bh) = (x1 - x0, y1 - y0);
+                    let mut buffer = SharedPixelBuffer::<Rgba8Pixel>::new(bw, bh);
+                    let mut canvas = image::ImageBuffer::<image::Rgba<u8>, &mut [u8]>::from_raw(
+                        bw,
+                        bh,
+                        buffer.make_mut_bytes(),
+                    )
                     .expect("laser buffer size");
-                InkingRasterizer::draw_laser_trail_at(&mut canvas, trail, overlay_w as f32, overlay_h as f32, x0 as f32, y0 as f32);
-                let (fw, fh) = (overlay_w as f32, overlay_h as f32);
-                Some((Image::from_rgba8(buffer), [x0 as f32 / fw, y0 as f32 / fh, bw as f32 / fw, bh as f32 / fh]))
-            });
+                    InkingRasterizer::draw_laser_trail_at(
+                        &mut canvas,
+                        trail,
+                        overlay_w as f32,
+                        overlay_h as f32,
+                        x0 as f32,
+                        y0 as f32,
+                    );
+                    let (fw, fh) = (overlay_w as f32, overlay_h as f32);
+                    Some((
+                        Image::from_rgba8(buffer),
+                        [
+                            x0 as f32 / fw,
+                            y0 as f32 / fh,
+                            bw as f32 / fw,
+                            bh as f32 / fh,
+                        ],
+                    ))
+                });
             let publish_laser = |laser_layer: Option<(Image, [f32; 4])>| {
                 let (img, rect, visible) = match laser_layer {
                     Some((img, rect)) => (img, rect, true),
@@ -178,7 +219,8 @@ pub(crate) fn build_ink_overlay(
                         l.base_generation == generation
                             && l.stroke_id == active.id
                             && l.committed_segs <= n.saturating_sub(2)
-                            && l.anchor.map_or(true, |a| active.points.get(l.committed_segs) == Some(&a))
+                            && l.anchor
+                                .map_or(true, |a| active.points.get(l.committed_segs) == Some(&a))
                     });
                     if !layer_ok {
                         st.active_ink_layer = Some(ActiveInkLayer {
@@ -192,19 +234,37 @@ pub(crate) fn build_ink_overlay(
                     let layer = st.active_ink_layer.as_mut().unwrap();
                     let final_end = n - 2; // segments < n-2 no longer change
                     if final_end > layer.committed_segs {
-                        InkingRasterizer::draw_stroke_segments(&mut layer.img, active, layer.committed_segs, final_end);
+                        InkingRasterizer::draw_stroke_segments(
+                            &mut layer.img,
+                            active,
+                            layer.committed_segs,
+                            final_end,
+                        );
                         layer.committed_segs = final_end;
                         layer.anchor = Some(active.points[final_end]);
                     }
                     buffer.make_mut_bytes().copy_from_slice(layer.img.as_raw());
-                    let mut canvas = image::ImageBuffer::<image::Rgba<u8>, &mut [u8]>::from_raw(w, h, buffer.make_mut_bytes())
-                        .expect("ink buffer size");
-                    InkingRasterizer::draw_stroke_segments(&mut canvas, active, layer.committed_segs, n - 1);
+                    let mut canvas = image::ImageBuffer::<image::Rgba<u8>, &mut [u8]>::from_raw(
+                        w,
+                        h,
+                        buffer.make_mut_bytes(),
+                    )
+                    .expect("ink buffer size");
+                    InkingRasterizer::draw_stroke_segments(
+                        &mut canvas,
+                        active,
+                        layer.committed_segs,
+                        n - 1,
+                    );
                 } else {
                     st.active_ink_layer = None;
                     buffer.make_mut_bytes().copy_from_slice(base_img.as_raw());
-                    let mut canvas = image::ImageBuffer::<image::Rgba<u8>, &mut [u8]>::from_raw(w, h, buffer.make_mut_bytes())
-                        .expect("ink buffer size");
+                    let mut canvas = image::ImageBuffer::<image::Rgba<u8>, &mut [u8]>::from_raw(
+                        w,
+                        h,
+                        buffer.make_mut_bytes(),
+                    )
+                    .expect("ink buffer size");
                     if let Some(active) = st.active_stroke.as_ref() {
                         InkingRasterizer::draw_stroke(&mut canvas, active);
                     }
@@ -244,6 +304,7 @@ pub(crate) fn build_slide_view(
         let update_ink = update_ink_overlay.clone();
         let video_player = video_player.clone();
 
+        let prewarm_timer = slint::Timer::default();
         Rc::new(move || {
             lock(&video_player).stop();
             let mut st = state.borrow_mut();
@@ -258,6 +319,7 @@ pub(crate) fn build_slide_view(
             let current_idx = st.deck.current_index;
             let total = st.deck.total_slides();
             let current_slide = &st.deck.slides[current_idx];
+            let slide_track_box = current_slide.audio_progress_box;
 
             let slint_current = slide_presenter_image(current_slide);
             let aud_slide = slide_audience_image(current_slide);
@@ -273,7 +335,10 @@ pub(crate) fn build_slide_view(
             let over_step = current_slide.overlay_step;
             let over_tot = current_slide.overlay_total;
             let frame_info = if tot_frames > 0 && over_tot > 1 {
-                format!("Frame {}/{} • Step {}/{}", cur_frame, tot_frames, over_step, over_tot)
+                format!(
+                    "Frame {}/{} • Step {}/{}",
+                    cur_frame, tot_frames, over_step, over_tot
+                )
             } else if tot_frames > 0 {
                 format!("Frame {}/{}", cur_frame, tot_frames)
             } else {
@@ -285,13 +350,18 @@ pub(crate) fn build_slide_view(
                     || (entry.frame_index == cur_frame && entry.page_index <= current_idx + 1)
             };
             let new_toc_model = if st.toc_model.is_none() {
-                let toc_models: Vec<TocItemModel> = st.deck.toc.iter().map(|entry| TocItemModel {
-                    title: SharedString::from(&entry.title),
-                    page_index: entry.page_index as i32,
-                    level: entry.level as i32,
-                    frame_index: entry.frame_index as i32,
-                    is_active: toc_is_active(entry),
-                }).collect();
+                let toc_models: Vec<TocItemModel> = st
+                    .deck
+                    .toc
+                    .iter()
+                    .map(|entry| TocItemModel {
+                        title: SharedString::from(&entry.title),
+                        page_index: entry.page_index as i32,
+                        level: entry.level as i32,
+                        frame_index: entry.frame_index as i32,
+                        is_active: toc_is_active(entry),
+                    })
+                    .collect();
                 Some(Rc::new(slint::VecModel::from(toc_models)))
             } else {
                 use slint::Model;
@@ -321,11 +391,12 @@ pub(crate) fn build_slide_view(
             let slide_aspect = current_slide.aspect_ratio;
             let is_dual_screen = current_slide.is_dual_screen;
             let slide_notes = current_slide.notes.clone();
-            let (has_notes_img, slint_notes_img) = if let Some(notes_img) = &current_slide.notes_image {
-                (true, cached_slint_image(notes_img))
-            } else {
-                (false, slint::Image::default())
-            };
+            let (has_notes_img, slint_notes_img) =
+                if let Some(notes_img) = &current_slide.notes_image {
+                    (true, cached_slint_image(notes_img))
+                } else {
+                    (false, slint::Image::default())
+                };
 
             let mut media_rect = [0.15f32, 0.26f32, 0.70f32, 0.50f32];
             let media_label = if let Some(first) = first_clip {
@@ -341,7 +412,10 @@ pub(crate) fn build_slide_view(
                         }
                         None => {
                             st.media_duration_pending = Some(first.file_path.clone());
-                            probe_media_durations(vec![first.file_path.clone()], &st.media_durations);
+                            probe_media_durations(
+                                vec![first.file_path.clone()],
+                                &st.media_durations,
+                            );
                         }
                     }
                     first.display_path
@@ -353,7 +427,10 @@ pub(crate) fn build_slide_view(
             };
 
             let doc_title = if let Some(path) = &st.deck.file_path {
-                path.file_name().unwrap_or_default().to_string_lossy().to_string()
+                path.file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string()
             } else {
                 "Interactive Beamer Presentation.pdf".to_string()
             };
@@ -392,7 +469,10 @@ pub(crate) fn build_slide_view(
                 p.set_is_end_of_show(st.is_end_of_show);
                 p.set_is_screen_swapped(st.is_screen_swapped);
                 p.set_laser_fade_duration_s(st.laser_fade_duration_s);
-                p.set_laser_fade_duration_text(SharedString::from(format!("{:.1}s", st.laser_fade_duration_s)));
+                p.set_laser_fade_duration_text(SharedString::from(format!(
+                    "{:.1}s",
+                    st.laser_fade_duration_s
+                )));
                 p.set_current_frame(cur_frame as i32);
                 p.set_total_frames(tot_frames as i32);
                 p.set_overlay_step(over_step as i32);
@@ -401,6 +481,17 @@ pub(crate) fn build_slide_view(
                 if let Some(model) = &new_toc_model {
                     p.set_toc_items(slint::ModelRc::from(model.clone()));
                 }
+
+                // Spectrogram / Waveform Progress Box
+                let track_box = slide_track_box;
+                p.set_media_track_box_defined(track_box.is_some());
+                if let Some(b) = track_box {
+                    p.set_media_track_box_x(b[0]);
+                    p.set_media_track_box_y(b[1]);
+                    p.set_media_track_box_w(b[2]);
+                    p.set_media_track_box_h(b[3]);
+                }
+                p.set_media_track_tool_active(st.media_tracking_tool_active);
 
                 p.set_hovered_on_link(false);
                 p.set_hovered_link_tooltip(SharedString::new());
@@ -425,7 +516,27 @@ pub(crate) fn build_slide_view(
                 a.set_zoom_level(st.zoom_level);
                 a.set_zoom_pan_x(st.zoom_pan_x);
                 a.set_zoom_pan_y(st.zoom_pan_y);
-                a.set_laser_color(slint::Color::from_argb_u8(st.laser_color_rgba[3], st.laser_color_rgba[0], st.laser_color_rgba[1], st.laser_color_rgba[2]));
+                let col = st.active_color;
+                a.set_tracker_color(slint::Color::from_argb_u8(col[3], col[0], col[1], col[2]));
+                let track_box = slide_track_box;
+                a.set_media_track_box_defined(track_box.is_some());
+                if let Some(b) = track_box {
+                    a.set_media_track_box_x(b[0]);
+                    a.set_media_track_box_y(b[1]);
+                    a.set_media_track_box_w(b[2]);
+                    a.set_media_track_box_h(b[3]);
+                }
+                a.set_media_playing(false);
+                a.set_media_progress(0.0);
+                a.set_media_track_show_box(st.media_track_show_audience_box);
+                a.set_media_track_needle_width(st.media_track_needle_width);
+                a.set_media_track_needle_glow(st.media_track_needle_glow);
+                a.set_laser_color(slint::Color::from_argb_u8(
+                    st.laser_color_rgba[3],
+                    st.laser_color_rgba[0],
+                    st.laser_color_rgba[1],
+                    st.laser_color_rgba[2],
+                ));
             }
 
             // Update Notes Window
@@ -442,31 +553,41 @@ pub(crate) fn build_slide_view(
             if new_toc_model.is_some() {
                 st.toc_model = new_toc_model;
             }
+            // Evict on every navigation, even if rapid input keeps postponing idle
+            // prewarming. Otherwise the display cache could grow without bound.
+            let window = current_idx.saturating_sub(1)..=current_idx + 2;
+            let keep: Vec<&Arc<crate::pdf::SlideImage>> = st.deck.slides
+                [*window.start()..(*window.end() + 1).min(st.deck.slides.len())]
+                .iter()
+                .flat_map(|s| {
+                    [&s.audience_image, &s.presenter_image]
+                        .into_iter()
+                        .chain(s.notes_image.as_ref())
+                })
+                .collect();
+            evict_gpu_images_except(&keep);
             drop(st);
             update_ink();
 
             // Prewarm neighbouring slides' GPU images while idle so the next step is instant.
             let state_pw = state.clone();
-            slint::Timer::single_shot(Duration::from_millis(30), move || {
-                let st = state_pw.borrow();
-                let idx = st.deck.current_index;
-                // Keep GPU images only for a small window around the current slide.
-                let window = idx.saturating_sub(1)..=idx + 2;
-                let keep: Vec<&Arc<RgbaImage>> = st.deck.slides[*window.start()..(*window.end() + 1).min(st.deck.slides.len())]
-                    .iter()
-                    .flat_map(|s| [&s.audience_image, &s.presenter_image].into_iter().chain(s.notes_image.as_ref()))
-                    .collect();
-                evict_gpu_images_except(&keep);
-                for i in [idx + 1, idx.wrapping_sub(1), idx + 2] {
-                    if let Some(s) = st.deck.slides.get(i) {
-                        slide_presenter_image(s);
-                        slide_audience_image(s);
-                        if let Some(n) = &s.notes_image {
-                            cached_slint_image(n);
+            prewarm_timer.start(
+                slint::TimerMode::SingleShot,
+                Duration::from_millis(30),
+                move || {
+                    let st = state_pw.borrow();
+                    let idx = st.deck.current_index;
+                    for i in [idx + 1, idx.wrapping_sub(1), idx + 2] {
+                        if let Some(s) = st.deck.slides.get(i) {
+                            slide_presenter_image(s);
+                            slide_audience_image(s);
+                            if let Some(n) = &s.notes_image {
+                                cached_slint_image(n);
+                            }
                         }
                     }
-                }
-            });
+                },
+            );
         })
     };
 

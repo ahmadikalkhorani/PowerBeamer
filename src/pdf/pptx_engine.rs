@@ -44,10 +44,22 @@ impl PptxEngine {
     /// 2. Converts the presentation to PDF using PowerPoint (COM / AppleScript) or LibreOffice.
     ///    If neither is installed, checks for a companion PDF with the same basename.
     /// 3. Loads the slides with PDFium and enhances each slide with the extracted PPTX notes, titles, and media clips.
+    #[allow(dead_code)] // Public library convenience entry point.
     pub fn load_deck_from_pptx(
         pptx_path: &Path,
         quality: RenderQuality,
     ) -> Result<(Vec<Slide>, Vec<TocEntry>), String> {
+        Self::load_deck_cancellable(pptx_path, quality, &|| false)
+    }
+
+    pub fn load_deck_cancellable(
+        pptx_path: &Path,
+        quality: RenderQuality,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<(Vec<Slide>, Vec<TocEntry>), String> {
+        if cancelled() {
+            return Err("load cancelled".into());
+        }
         if !pptx_path.exists() {
             return Err(format!("File does not exist: {}", pptx_path.display()));
         }
@@ -62,7 +74,8 @@ impl PptxEngine {
         let metadata = meta_handle.join().unwrap_or_default();
 
         // 3. Render slides using PDFium
-        let (mut slides, mut toc) = PdfiumLoader::load_deck_from_file(&pdf_path, quality)?;
+        let (mut slides, mut toc) =
+            PdfiumLoader::load_deck_cancellable(&pdf_path, quality, cancelled)?;
 
         // 4. Augment slides with PPTX notes, titles, and media
         for slide in &mut slides {
@@ -138,7 +151,10 @@ impl PptxEngine {
                 std::fs::metadata(&companion_pdf).and_then(|m| m.modified()),
             ) {
                 if m_comp >= m_src {
-                    println!("[PPTX Engine] Found companion PDF alongside presentation: {}", companion_pdf.display());
+                    println!(
+                        "[PPTX Engine] Found companion PDF alongside presentation: {}",
+                        companion_pdf.display()
+                    );
                     return Ok(companion_pdf);
                 }
             }
@@ -151,7 +167,10 @@ impl PptxEngine {
                 println!("[PPTX Engine] Converting with Microsoft PowerPoint on macOS...");
                 match Self::convert_with_powerpoint_macos(pptx_path, &cached_pdf) {
                     Ok(path) => return Ok(path),
-                    Err(e) => eprintln!("[PPTX Engine] PowerPoint conversion failed: {}. Falling back to LibreOffice...", e),
+                    Err(e) => eprintln!(
+                        "[PPTX Engine] PowerPoint conversion failed: {}. Falling back to LibreOffice...",
+                        e
+                    ),
                 }
             }
         }
@@ -159,7 +178,9 @@ impl PptxEngine {
         #[cfg(target_os = "windows")]
         {
             if Self::has_powerpoint_windows() {
-                println!("[PPTX Engine] Converting with Microsoft PowerPoint on Windows (PowerShell/COM)...");
+                println!(
+                    "[PPTX Engine] Converting with Microsoft PowerPoint on Windows (PowerShell/COM)..."
+                );
                 if let Ok(path) = Self::convert_with_powerpoint_windows(pptx_path, &cached_pdf) {
                     return Ok(path);
                 }
@@ -168,8 +189,13 @@ impl PptxEngine {
 
         // Attempt 2: LibreOffice / OpenOffice headless conversion (macOS, Windows, Linux)
         if let Some(soffice_bin) = Self::find_libreoffice_binary() {
-            println!("[PPTX Engine] Converting with LibreOffice ({})...", soffice_bin);
-            if let Ok(path) = Self::convert_with_libreoffice(&soffice_bin, pptx_path, &cache_dir, &cached_pdf) {
+            println!(
+                "[PPTX Engine] Converting with LibreOffice ({})...",
+                soffice_bin
+            );
+            if let Ok(path) =
+                Self::convert_with_libreoffice(&soffice_bin, pptx_path, &cache_dir, &cached_pdf)
+            {
                 return Ok(path);
             }
         }
@@ -305,7 +331,10 @@ impl PptxEngine {
         if !output_cmd.status.success() {
             let stderr = String::from_utf8_lossy(&output_cmd.stderr);
             let _ = std::fs::remove_file(&temp_pdf);
-            eprintln!("[PPTX Engine] PowerPoint export error: {}. Cascading...", stderr.trim());
+            eprintln!(
+                "[PPTX Engine] PowerPoint export error: {}. Cascading...",
+                stderr.trim()
+            );
             return Err(format!("PowerPoint AppleScript error: {}", stderr));
         }
 
@@ -317,7 +346,10 @@ impl PptxEngine {
                 // Rename across filesystem boundaries may fail; fallback to copy + remove
                 if let Err(copy_err) = std::fs::copy(&temp_pdf, &abs_out) {
                     let _ = std::fs::remove_file(&temp_pdf);
-                    return Err(format!("Failed to move converted PDF to cache: {} / {}", e, copy_err));
+                    return Err(format!(
+                        "Failed to move converted PDF to cache: {} / {}",
+                        e, copy_err
+                    ));
                 }
                 let _ = std::fs::remove_file(&temp_pdf);
             }
@@ -375,7 +407,8 @@ impl PptxEngine {
     /// Unpacks media and parses XML files inside the PPTX archive
     pub fn parse_pptx_metadata(pptx_path: &Path) -> Result<PptxMetadata, String> {
         let file = File::open(pptx_path).map_err(|e| format!("Failed to open PPTX zip: {}", e))?;
-        let mut archive = ZipArchive::new(file).map_err(|e| format!("Invalid zip archive: {}", e))?;
+        let mut archive =
+            ZipArchive::new(file).map_err(|e| format!("Invalid zip archive: {}", e))?;
 
         let mut meta = PptxMetadata::default();
         let cache_media_dir = Self::get_pptx_cache_dir(pptx_path)?.join("media");
@@ -397,16 +430,28 @@ impl PptxEngine {
                 if let Ok(name) = zf.name() {
                     let name = name.to_string();
                     if name.starts_with("ppt/media/") && !name.ends_with('/') {
-                        if let Some(file_name) = Path::new(&name).file_name().and_then(|n| n.to_str()) {
+                        if let Some(file_name) =
+                            Path::new(&name).file_name().and_then(|n| n.to_str())
+                        {
                             // Only extract audio and video files — static slide images (.png, .jpg, etc.)
                             // are part of the visual slide rendering and must NOT be treated as playable media.
                             if Self::is_playable_media_extension(file_name) {
                                 let out_file = cache_media_dir.join(file_name);
-                                if out_file.exists() && std::fs::metadata(&out_file).map(|m| m.len() > 0).unwrap_or(false) {
-                                    media_filename_to_local_path.insert(file_name.to_string(), out_file.to_string_lossy().to_string());
+                                if out_file.exists()
+                                    && std::fs::metadata(&out_file)
+                                        .map(|m| m.len() > 0)
+                                        .unwrap_or(false)
+                                {
+                                    media_filename_to_local_path.insert(
+                                        file_name.to_string(),
+                                        out_file.to_string_lossy().to_string(),
+                                    );
                                 } else if let Ok(mut dest) = File::create(&out_file) {
                                     let _ = std::io::copy(&mut zf, &mut dest);
-                                    media_filename_to_local_path.insert(file_name.to_string(), out_file.to_string_lossy().to_string());
+                                    media_filename_to_local_path.insert(
+                                        file_name.to_string(),
+                                        out_file.to_string_lossy().to_string(),
+                                    );
                                 }
                             }
                         }
@@ -416,11 +461,14 @@ impl PptxEngine {
         }
 
         // 3. Parse individual slides (titles, bounding boxes for media, rels)
-        let (slide_width_emu, slide_height_emu) = meta.slide_size_emu.unwrap_or((12192000, 6858000));
+        let (slide_width_emu, slide_height_emu) =
+            meta.slide_size_emu.unwrap_or((12192000, 6858000));
         let mut slide_idx = 1;
         loop {
             let slide_xml_opt = {
-                if let Ok(mut slide_file) = archive.by_name(&format!("ppt/slides/slide{}.xml", slide_idx)) {
+                if let Ok(mut slide_file) =
+                    archive.by_name(&format!("ppt/slides/slide{}.xml", slide_idx))
+                {
                     let mut s = String::new();
                     let _ = slide_file.read_to_string(&mut s);
                     Some(s)
@@ -439,7 +487,9 @@ impl PptxEngine {
 
             // Check slide relationships for media links
             let rels_xml_opt = {
-                if let Ok(mut rels_file) = archive.by_name(&format!("ppt/slides/_rels/slide{}.xml.rels", slide_idx)) {
+                if let Ok(mut rels_file) =
+                    archive.by_name(&format!("ppt/slides/_rels/slide{}.xml.rels", slide_idx))
+                {
                     let mut s = String::new();
                     let _ = rels_file.read_to_string(&mut s);
                     Some(s)
@@ -463,7 +513,11 @@ impl PptxEngine {
                     a.rect[1]
                         .partial_cmp(&b.rect[1])
                         .unwrap_or(std::cmp::Ordering::Equal)
-                        .then_with(|| a.rect[0].partial_cmp(&b.rect[0]).unwrap_or(std::cmp::Ordering::Equal))
+                        .then_with(|| {
+                            a.rect[0]
+                                .partial_cmp(&b.rect[0])
+                                .unwrap_or(std::cmp::Ordering::Equal)
+                        })
                 });
                 if !clips.is_empty() {
                     meta.slide_media.insert(slide_idx, clips);
@@ -475,7 +529,9 @@ impl PptxEngine {
 
         // 4. Parse notes slides (`ppt/notesSlides/notesSlide{N}.xml`)
         let mut note_idx = 1;
-        while let Ok(mut note_file) = archive.by_name(&format!("ppt/notesSlides/notesSlide{}.xml", note_idx)) {
+        while let Ok(mut note_file) =
+            archive.by_name(&format!("ppt/notesSlides/notesSlide{}.xml", note_idx))
+        {
             let mut note_xml = String::new();
             if note_file.read_to_string(&mut note_xml).is_ok() {
                 let note_text = Self::extract_notes_text(&note_xml);
@@ -495,8 +551,12 @@ impl PptxEngine {
         // e.g. <p:sldSz cx="12192000" cy="6858000"/>
         let sld_sz_start = xml.find("<p:sldSz")?;
         let sld_sz_tag = &xml[sld_sz_start..xml[sld_sz_start..].find('>')? + sld_sz_start];
-        let cx = Self::extract_xml_attribute(sld_sz_tag, "cx")?.parse::<u64>().ok()?;
-        let cy = Self::extract_xml_attribute(sld_sz_tag, "cy")?.parse::<u64>().ok()?;
+        let cx = Self::extract_xml_attribute(sld_sz_tag, "cx")?
+            .parse::<u64>()
+            .ok()?;
+        let cy = Self::extract_xml_attribute(sld_sz_tag, "cy")?
+            .parse::<u64>()
+            .ok()?;
         Some((cx, cy))
     }
 
@@ -535,7 +595,10 @@ impl PptxEngine {
         let mut paragraphs = Vec::new();
         for sp in xml.split("<p:sp>") {
             // Skip slide number and header/footer placeholders
-            if sp.contains("type=\"sldNum\"") || sp.contains("type=\"hdr\"") || sp.contains("type=\"ftr\"") {
+            if sp.contains("type=\"sldNum\"")
+                || sp.contains("type=\"hdr\"")
+                || sp.contains("type=\"ftr\"")
+            {
                 continue;
             }
             // Notes body usually has type="body"
@@ -604,9 +667,12 @@ impl PptxEngine {
                     if let Some(end) = shape[start..].find('"') {
                         let id = &shape[start..start + end];
                         if let Some(target) = rels.get(id) {
-                            if let Some(filename) = Path::new(target).file_name().and_then(|n| n.to_str()) {
+                            if let Some(filename) =
+                                Path::new(target).file_name().and_then(|n| n.to_str())
+                            {
                                 if let Some(local_path) = local_media_map.get(filename) {
-                                    matched_media = Some((filename.to_string(), local_path.clone()));
+                                    matched_media =
+                                        Some((filename.to_string(), local_path.clone()));
                                     break;
                                 }
                             }
@@ -646,10 +712,18 @@ impl PptxEngine {
         let ext_idx = xfrm_block.find("<a:ext")?;
         let ext_tag = &xfrm_block[ext_idx..xfrm_block[ext_idx..].find("/>")? + ext_idx];
 
-        let x = Self::extract_xml_attribute(off_tag, "x")?.parse::<f32>().ok()?;
-        let y = Self::extract_xml_attribute(off_tag, "y")?.parse::<f32>().ok()?;
-        let w = Self::extract_xml_attribute(ext_tag, "cx")?.parse::<f32>().ok()?;
-        let h = Self::extract_xml_attribute(ext_tag, "cy")?.parse::<f32>().ok()?;
+        let x = Self::extract_xml_attribute(off_tag, "x")?
+            .parse::<f32>()
+            .ok()?;
+        let y = Self::extract_xml_attribute(off_tag, "y")?
+            .parse::<f32>()
+            .ok()?;
+        let w = Self::extract_xml_attribute(ext_tag, "cx")?
+            .parse::<f32>()
+            .ok()?;
+        let h = Self::extract_xml_attribute(ext_tag, "cy")?
+            .parse::<f32>()
+            .ok()?;
 
         let sw = slide_w as f32;
         let sh = slide_h as f32;
@@ -722,10 +796,7 @@ impl PptxEngine {
     /// Prefers `.cache/powerbeamer/<stem>` inside the same directory as the presentation file,
     /// keeping all associated presentation files co-located and self-contained.
     pub fn get_pptx_cache_dir(pptx_path: &Path) -> Result<PathBuf, String> {
-        let file_stem = pptx_path
-            .file_stem()
-            .unwrap_or_default()
-            .to_string_lossy();
+        let file_stem = pptx_path.file_stem().unwrap_or_default().to_string_lossy();
 
         // 1. Try local cache in the same directory: <presentation_folder>/.cache/powerbeamer/<file_stem>
         if let Some(parent_dir) = pptx_path.parent() {
@@ -740,7 +811,10 @@ impl PptxEngine {
 
         // 2. Fallback to global user cache if the presentation directory is read-only
         let base_cache = if let Some(home) = std::env::var_os("HOME") {
-            PathBuf::from(home).join(".cache").join("powerbeamer").join("pptx")
+            PathBuf::from(home)
+                .join(".cache")
+                .join("powerbeamer")
+                .join("pptx")
         } else if let Some(appdata) = std::env::var_os("LOCALAPPDATA") {
             PathBuf::from(appdata).join("PowerBeamer").join("pptx")
         } else {
@@ -748,8 +822,13 @@ impl PptxEngine {
         };
 
         let target_dir = base_cache.join(file_stem.as_ref());
-        std::fs::create_dir_all(&target_dir)
-            .map_err(|e| format!("Failed to create cache directory '{}': {}", target_dir.display(), e))?;
+        std::fs::create_dir_all(&target_dir).map_err(|e| {
+            format!(
+                "Failed to create cache directory '{}': {}",
+                target_dir.display(),
+                e
+            )
+        })?;
 
         Ok(target_dir)
     }
@@ -773,9 +852,13 @@ mod tests {
     fn test_pptx_metadata_extraction() {
         let sample = Path::new("test_deck/sample_deck.pptx");
         if sample.exists() {
-            let meta = PptxEngine::parse_pptx_metadata(sample).expect("Failed to parse sample pptx");
+            let meta =
+                PptxEngine::parse_pptx_metadata(sample).expect("Failed to parse sample pptx");
             assert_eq!(meta.slide_size_emu, Some((12192000, 6858000)));
-            assert_eq!(meta.slide_titles.get(&1).map(|s| s.as_str()), Some("Quantum Computing Overview"));
+            assert_eq!(
+                meta.slide_titles.get(&1).map(|s| s.as_str()),
+                Some("Quantum Computing Overview")
+            );
             assert_eq!(
                 meta.slide_notes.get(&1).map(|s| s.as_str()),
                 Some("Welcome everyone. Highlight the physical qubit coherence times today.")
@@ -796,4 +879,3 @@ mod tests {
         assert!(PptxEngine::is_playable_media_extension("clip.mov"));
     }
 }
-

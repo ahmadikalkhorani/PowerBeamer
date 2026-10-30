@@ -15,7 +15,7 @@ mod timer;
 mod updater;
 
 use media::InPlaceVideoPlayer;
-use pdf::{PresentationDeck, RenderQuality};
+use pdf::RenderQuality;
 use settings::Settings;
 
 slint::include_modules!();
@@ -35,7 +35,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .as_deref()
         .map(RenderQuality::from_label)
         .unwrap_or(RenderQuality::Balanced);
-    let initial_deck = PresentationDeck::new_demo_deck(startup_quality);
     let mut startup_error: Option<String> = None;
 
     // A PDF given on the command line loads in the background once the window is up.
@@ -45,13 +44,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if path.exists() {
             startup_path = Some(path);
         } else {
-            startup_error = Some(format!("File not found: {}. Showing the demo deck.", path.display()));
+            startup_error = Some(format!(
+                "File not found: {}. Showing the demo deck.",
+                path.display()
+            ));
         }
     }
 
     let mut initial_state = AppState::new();
     initial_state.apply_settings(&saved_settings);
-    initial_state.deck = initial_deck;
+    initial_state.deck.quality = startup_quality;
     let state = Rc::new(RefCell::new(initial_state));
 
     // Create main Presenter Window
@@ -67,7 +69,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(target_os = "macos")]
     setup_macos_app_icon();
 
-    let update_ink_overlay = app::view::build_ink_overlay(&state, &presenter_window, &audience_window);
+    let update_ink_overlay =
+        app::view::build_ink_overlay(&state, &presenter_window, &audience_window);
 
     // In-place video player: decodes frames directly into a Slint image (no external window)
     let video_player = Arc::new(Mutex::new(InPlaceVideoPlayer::new()));
@@ -97,6 +100,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         update_ink_overlay: update_ink_overlay.clone(),
         video_player: video_player.clone(),
         update_slide_view: update_slide_view.clone(),
+        audio_tick: Rc::new(RefCell::new(None)),
     };
 
     // Timers must stay alive for the whole run loop.
@@ -112,7 +116,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     _timers.extend(app::updates::wire(&ctx));
 
     if let Some(path) = startup_path.take() {
-        let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
         state.borrow_mut().start_deck_load(path, DeckLoadKind::Open);
         presenter_window.set_deck_loading(true);
         show_toast(&presenter_window, format!("Opening {}…", name), false);
@@ -120,7 +128,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Starting Beamer Presenter main window loop...");
     presenter_window.run()?;
+    // Persist the final value even if the user exits before the next debounce tick.
+    state.borrow().capture_settings().save_background();
+    Settings::flush_saves();
 
     Ok(())
 }
 
+pub mod work;

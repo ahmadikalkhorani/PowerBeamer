@@ -740,6 +740,8 @@
       const card = document.createElement('div');
       card.className = 'overview-thumb-card';
       const img = document.createElement('img');
+      img.loading = 'lazy';
+      img.decoding = 'async';
       img.src = 'assets/' + slide.audience_img;
       img.alt = `Slide ${idx + 1}`;
       card.appendChild(img);
@@ -1515,8 +1517,9 @@
   function resizeCanvas() {
     const rect = stageSlideImg.getBoundingClientRect();
     if (rect.width > 0 && rect.height > 0) {
-      canvas.width = rect.width;
-      canvas.height = rect.height;
+      if (canvas.width === Math.round(rect.width) && canvas.height === Math.round(rect.height)) return;
+      canvas.width = Math.round(rect.width);
+      canvas.height = Math.round(rect.height);
       if (laserCanvas) {
         laserCanvas.width = rect.width;
         laserCanvas.height = rect.height;
@@ -1525,7 +1528,11 @@
     }
   }
 
-  window.addEventListener('resize', resizeCanvas);
+  let resizeFrame = null;
+  window.addEventListener('resize', () => {
+    if (resizeFrame !== null) return;
+    resizeFrame = requestAnimationFrame(() => { resizeFrame = null; resizeCanvas(); });
+  });
 
   function getCoords(e) {
     const rect = canvas.getBoundingClientRect();

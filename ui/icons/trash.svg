@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Trash lid handle -->
+  <path d="M9 3h6" />
+  <!-- Lid horizontal bar -->
+  <path d="M4 6h16" />
+  <!-- Can body -->
+  <path d="M5.5 6l1.2 13.2A2 2 0 0 0 8.7 21h6.6a2 2 0 0 0 2-1.8L18.5 6" />
+  <!-- Inner vertical ribs -->
+  <line x1="10" y1="10" x2="10" y2="16" />
+  <line x1="14" y1="10" x2="14" y2="16" />
+</svg>

@@ -34,13 +34,34 @@ pub(crate) fn probe_media_durations(paths: Vec<String>, cache: &Arc<Mutex<HashMa
     if paths.is_empty() {
         return;
     }
-    let cache = cache.clone();
-    std::thread::spawn(move || {
-        for path in paths {
-            let dur = probe_video_duration(&path);
-            lock(&cache).insert(path, dur);
-        }
+    use std::collections::HashSet;
+    use std::sync::OnceLock;
+    type Probe = (String, Arc<Mutex<HashMap<String, f32>>>);
+    static PENDING: OnceLock<Mutex<HashSet<(usize, String)>>> = OnceLock::new();
+    static PROBES: OnceLock<std::sync::mpsc::Sender<Probe>> = OnceLock::new();
+    let pending = PENDING.get_or_init(Default::default);
+    let sender = PROBES.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::channel::<Probe>();
+        std::thread::spawn(move || {
+            while let Ok((path, cache)) = rx.recv() {
+                #[cfg(test)]
+                MEDIA_PROBE_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let duration = probe_video_duration(&path);
+                lock(&cache).insert(path.clone(), duration);
+                lock(PENDING.get().unwrap()).remove(&(Arc::as_ptr(&cache) as usize, path));
+            }
+        });
+        tx
     });
+    for path in paths {
+        if lock(&cache).contains_key(&path) {
+            continue;
+        }
+        let key = (Arc::as_ptr(cache) as usize, path.clone());
+        if lock(pending).insert(key) {
+            let _ = sender.send((path, cache.clone()));
+        }
+    }
 }
 
 /// Cheap content fingerprint of committed strokes, used to validate the ink cache.
@@ -79,6 +100,7 @@ pub(crate) struct AppState {
     pub(crate) laser_active: bool,
     pub(crate) active_color: [u8; 4],
     pub(crate) stroke_width: f32,
+    pub(crate) pen_stroke_width: f32,
     pub(crate) current_tool: ActiveTool,
     pub(crate) stroke_counter: u64,
 
@@ -145,6 +167,8 @@ pub(crate) struct AppState {
     pub(crate) media_current_time_secs: f32,
     pub(crate) media_speed: f32,
     pub(crate) media_speech_active: bool,
+    pub(crate) media_playback_started: Option<std::time::Instant>,
+    pub(crate) media_playback_start_offset: f32,
     // Clip the toolbar drives on a slide with several clips, as (slide index, clip index)
     pub(crate) active_media_clip: (usize, usize),
 
@@ -188,6 +212,15 @@ pub(crate) struct AppState {
     pub(crate) zoom_pan_x: f32,
     pub(crate) zoom_pan_y: f32,
     pub(crate) selection_box: Option<(f32, f32, f32, f32)>,
+
+    // Spectrogram/Waveform Audio Timeline Progress Box Tool
+    pub(crate) media_tracking_tool_active: bool,
+    pub(crate) drawing_track_box: Option<(f32, f32, f32, f32)>,
+    pub(crate) media_track_fps_mode: i32, // 0: Auto (Linked to quality), 1: 15 fps, 2: 30 fps, 3: 60 fps
+    pub(crate) media_track_show_audience_box: bool,
+    pub(crate) media_track_needle_width: f32,
+    pub(crate) media_track_needle_glow: bool,
+    pub(crate) media_track_loop: bool,
 }
 
 impl AppState {
@@ -195,7 +228,7 @@ impl AppState {
         Settings {
             sync_with_source: Some(self.sync_with_source),
             render_quality: Some(self.deck.quality.label().to_string()),
-            stroke_width: Some(self.stroke_width),
+            stroke_width: Some(self.pen_stroke_width),
             auto_shape_enabled: Some(self.auto_shape_enabled),
             scribble_to_erase: Some(self.scribble_to_erase),
             hold_delay_ms: Some(self.hold_delay_ms),
@@ -214,7 +247,13 @@ impl AppState {
             laser_draw_lines: Some(self.laser_draw_lines),
             laser_fade_duration_s: Some(self.laser_fade_duration_s),
             active_color_slot: Some(self.active_color_slot),
-            color_slots: Some([self.color_slot_1, self.color_slot_2, self.color_slot_3, self.color_slot_4, self.color_slot_5]),
+            color_slots: Some([
+                self.color_slot_1,
+                self.color_slot_2,
+                self.color_slot_3,
+                self.color_slot_4,
+                self.color_slot_5,
+            ]),
             custom_palette: Some(self.custom_palette.clone()),
             media_speech_active: Some(self.media_speech_active),
             timer_countdown: Some(self.timer_countdown),
@@ -224,24 +263,57 @@ impl AppState {
             timer_show_clock: Some(self.timer_show_clock),
             timer_size: Some(self.timer_size),
             timer_start_on_advance: Some(self.timer_start_on_advance),
+            media_track_fps_mode: Some(self.media_track_fps_mode),
+            media_track_show_audience_box: Some(self.media_track_show_audience_box),
+            media_track_needle_width: Some(self.media_track_needle_width),
+            media_track_needle_glow: Some(self.media_track_needle_glow),
+            media_track_loop: Some(self.media_track_loop),
         }
     }
 
     pub(crate) fn apply_settings(&mut self, s: &Settings) {
+        if let Some(width) = s.stroke_width { self.pen_stroke_width = width; }
         macro_rules! set {
             ($($field:ident),*) => { $( if let Some(v) = s.$field.clone() { self.$field = v; } )* };
         }
         set!(
-            sync_with_source, stroke_width, auto_shape_enabled, scribble_to_erase,
-            hold_delay_ms, highlighter_mode,
-            highlighter_straight_lines, highlighter_size_mm, eraser_size_index, eraser_radius,
-            erase_whole_line, erase_highlight_only, auto_select_previous_tool, erase_shapes,
-            erase_tapes, laser_color_index, laser_color_rgba, laser_draw_lines,
-            laser_fade_duration_s, active_color_slot, custom_palette, media_speech_active,
-            timer_countdown, timer_duration_min, timer_warn_min, timer_flash_overtime,
-            timer_show_clock, timer_size, timer_start_on_advance
+            sync_with_source,
+            stroke_width,
+            auto_shape_enabled,
+            scribble_to_erase,
+            hold_delay_ms,
+            highlighter_mode,
+            highlighter_straight_lines,
+            highlighter_size_mm,
+            eraser_size_index,
+            eraser_radius,
+            erase_whole_line,
+            erase_highlight_only,
+            auto_select_previous_tool,
+            erase_shapes,
+            erase_tapes,
+            laser_color_index,
+            laser_color_rgba,
+            laser_draw_lines,
+            laser_fade_duration_s,
+            active_color_slot,
+            custom_palette,
+            media_speech_active,
+            timer_countdown,
+            timer_duration_min,
+            timer_warn_min,
+            timer_flash_overtime,
+            timer_show_clock,
+            timer_size,
+            timer_start_on_advance,
+            media_track_fps_mode,
+            media_track_show_audience_box,
+            media_track_needle_width,
+            media_track_needle_glow,
+            media_track_loop
         );
-        self.timer.set_target_minutes(self.timer_duration_min.max(1) as u64);
+        self.timer
+            .set_target_minutes(self.timer_duration_min.max(1) as u64);
         if self.timer_start_on_advance {
             self.arm_timer();
         }
@@ -249,9 +321,21 @@ impl AppState {
             self.deck.quality = RenderQuality::from_label(q);
         }
         if let Some([c1, c2, c3, c4, c5]) = s.color_slots {
-            (self.color_slot_1, self.color_slot_2, self.color_slot_3, self.color_slot_4, self.color_slot_5) = (c1, c2, c3, c4, c5);
+            (
+                self.color_slot_1,
+                self.color_slot_2,
+                self.color_slot_3,
+                self.color_slot_4,
+                self.color_slot_5,
+            ) = (c1, c2, c3, c4, c5);
         }
-        let slots = [self.color_slot_1, self.color_slot_2, self.color_slot_3, self.color_slot_4, self.color_slot_5];
+        let slots = [
+            self.color_slot_1,
+            self.color_slot_2,
+            self.color_slot_3,
+            self.color_slot_4,
+            self.color_slot_5,
+        ];
         if let Some(c) = slots.get(self.active_color_slot.clamp(0, 4) as usize) {
             self.active_color = *c;
         }
@@ -262,7 +346,7 @@ impl AppState {
         p.set_sync_with_source(self.sync_with_source);
         p.set_render_quality(SharedString::from(self.deck.quality.label()));
         p.set_stroke_width(self.stroke_width);
-        let pen_mm = self.stroke_width / 4.2;
+        let pen_mm = self.pen_stroke_width / 4.2;
         p.set_pen_size_value(pen_mm);
         p.set_pen_size_mm(SharedString::from(format!("{:.1}mm", pen_mm)));
         p.set_auto_shape_enabled(self.auto_shape_enabled);
@@ -273,7 +357,11 @@ impl AppState {
         p.set_highlighter_mode(self.highlighter_mode);
         p.set_highlighter_straight_lines(self.highlighter_straight_lines);
         p.set_highlighter_size_mm(SharedString::from(&self.highlighter_size_mm));
-        if let Ok(v) = self.highlighter_size_mm.trim_end_matches("mm").parse::<f32>() {
+        if let Ok(v) = self
+            .highlighter_size_mm
+            .trim_end_matches("mm")
+            .parse::<f32>()
+        {
             p.set_highlighter_size_value(v);
         }
         p.set_eraser_size_index(self.eraser_size_index);
@@ -287,7 +375,10 @@ impl AppState {
         p.set_laser_color(to_slint_color(self.laser_color_rgba));
         p.set_laser_draw_lines(self.laser_draw_lines);
         p.set_laser_fade_duration_s(self.laser_fade_duration_s);
-        p.set_laser_fade_duration_text(SharedString::from(format!("{:.1}s", self.laser_fade_duration_s)));
+        p.set_laser_fade_duration_text(SharedString::from(format!(
+            "{:.1}s",
+            self.laser_fade_duration_s
+        )));
         p.set_active_color_slot(self.active_color_slot);
         p.set_active_color(to_slint_color(self.active_color));
         p.set_color_slot_1(to_slint_color(self.color_slot_1));
@@ -295,7 +386,11 @@ impl AppState {
         p.set_color_slot_3(to_slint_color(self.color_slot_3));
         p.set_color_slot_4(to_slint_color(self.color_slot_4));
         p.set_color_slot_5(to_slint_color(self.color_slot_5));
-        let palette: Vec<slint::Color> = self.custom_palette.iter().map(|c| to_slint_color(*c)).collect();
+        let palette: Vec<slint::Color> = self
+            .custom_palette
+            .iter()
+            .map(|c| to_slint_color(*c))
+            .collect();
         p.set_custom_palette(Rc::new(slint::VecModel::from(palette)).into());
         p.set_media_speech_active(self.media_speech_active);
         p.set_timer_countdown(self.timer_countdown);
@@ -305,6 +400,11 @@ impl AppState {
         p.set_timer_show_clock(self.timer_show_clock);
         p.set_timer_size(self.timer_size);
         p.set_timer_start_on_advance(self.timer_start_on_advance);
+        p.set_media_track_fps_mode(self.media_track_fps_mode);
+        p.set_media_track_show_audience_box(self.media_track_show_audience_box);
+        p.set_media_track_needle_width(self.media_track_needle_width);
+        p.set_media_track_needle_glow(self.media_track_needle_glow);
+        p.set_media_track_loop(self.media_track_loop);
     }
 
     /// Stops the timer at zero until the presenter leaves the current slide.
@@ -328,27 +428,40 @@ pub(crate) enum DeckLoadKind {
 pub(crate) type DeckLoadResult = Result<(Vec<Slide>, Vec<TocEntry>), String>;
 
 pub(crate) struct DeckLoadJob {
-    pub(crate) rx: std::sync::mpsc::Receiver<DeckLoadResult>,
+    pub(crate) id: u64,
     pub(crate) path: std::path::PathBuf,
     pub(crate) kind: DeckLoadKind,
 }
 
 impl AppState {
-    /// Renders `path` on a worker thread. A newer request supersedes one still in flight
-    /// (its result is dropped when it arrives).
+    /// One worker renders at a time. A newer request replaces pending work and
+    /// cancels an active PDF render at the next page boundary.
     pub(crate) fn start_deck_load(&mut self, path: std::path::PathBuf, kind: DeckLoadKind) {
-        let (tx, rx) = std::sync::mpsc::channel();
-        let quality = self.deck.quality;
-        let worker_path = path.clone();
-        std::thread::spawn(move || {
-            let res = if pdf::PptxEngine::is_pptx(&worker_path) {
-                pdf::PptxEngine::load_deck_from_pptx(&worker_path, quality)
-            } else {
-                pdf::PdfiumLoader::load_deck_from_file(&worker_path, quality)
-            };
-            let _ = tx.send(res);
+        use std::sync::{OnceLock, atomic::Ordering};
+        type Request = (std::path::PathBuf, RenderQuality);
+        static WORKER: OnceLock<crate::work::LatestWorker<Request>> = OnceLock::new();
+        let worker = WORKER.get_or_init(|| {
+            crate::work::LatestWorker::new(|id, (path, quality): Request, generation| {
+                let cancelled = || generation.load(Ordering::Acquire) != id;
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    if pdf::PptxEngine::is_pptx(&path) {
+                        pdf::PptxEngine::load_deck_cancellable(&path, quality, &cancelled)
+                    } else {
+                        pdf::PdfiumLoader::load_deck_cancellable(&path, quality, &cancelled)
+                    }
+                }))
+                .unwrap_or_else(|_| Err("presentation loader panicked".into()));
+                if !cancelled() {
+                    if let Err(error) =
+                        slint::invoke_from_event_loop(move || super::files::finish_load(id, result))
+                    {
+                        eprintln!("Couldn't deliver presentation load result: {error}");
+                    }
+                }
+            })
         });
-        self.deck_load = Some(DeckLoadJob { rx, path, kind });
+        let id = worker.submit((path.clone(), self.deck.quality));
+        self.deck_load = Some(DeckLoadJob { id, path, kind });
     }
 }
 
@@ -362,7 +475,13 @@ pub(crate) fn file_stamp(path: &std::path::Path) -> Option<FileStamp> {
 
 impl AppState {
     /// Installs a freshly opened deck and resets every cache derived from the previous one.
-    pub(crate) fn install_deck(&mut self, slides: Vec<Slide>, toc: Vec<TocEntry>, path: std::path::PathBuf) {
+    pub(crate) fn install_deck(
+        &mut self,
+        slides: Vec<Slide>,
+        toc: Vec<TocEntry>,
+        path: std::path::PathBuf,
+    ) {
+        lock(&self.media_durations).clear();
         self.deck.slides = slides;
         self.deck.toc = toc;
         self.deck.current_index = 0;
@@ -393,13 +512,23 @@ impl AppState {
     }
 
     pub(crate) fn active_clip(&self) -> Option<pdf::MediaClip> {
-        self.deck.current_slide().media_clips.get(self.active_clip_index()).cloned()
+        self.deck
+            .current_slide()
+            .media_clips
+            .get(self.active_clip_index())
+            .cloned()
     }
 
     pub(crate) fn format_media_time(&self) -> String {
         let cur = self.media_current_time_secs as u32;
         let tot = self.media_duration_secs as u32;
-        format!("{:02}:{:02} / {:02}:{:02}", cur / 60, cur % 60, tot / 60, tot % 60)
+        format!(
+            "{:02}:{:02} / {:02}:{:02}",
+            cur / 60,
+            cur % 60,
+            tot / 60,
+            tot % 60
+        )
     }
 
     pub(crate) fn format_media_speed(&self) -> String {
@@ -426,6 +555,7 @@ impl AppState {
             laser_active: false,
             active_color: [254, 240, 78, 255], // Yellow #fef04e
             stroke_width: 3.5,
+            pen_stroke_width: 3.5,
             current_tool: ActiveTool::Laser,
             stroke_counter: 0,
 
@@ -445,6 +575,8 @@ impl AppState {
             media_current_time_secs: 0.0,
             media_speed: 1.0,
             media_speech_active: true,
+            media_playback_started: None,
+            media_playback_start_offset: 0.0,
             active_media_clip: (0, 0),
 
             blank_mode: 0,
@@ -517,6 +649,37 @@ impl AppState {
             zoom_pan_x: 0.0,
             zoom_pan_y: 0.0,
             selection_box: None,
+            media_tracking_tool_active: false,
+            drawing_track_box: None,
+            media_track_fps_mode: 0, // Auto
+            media_track_show_audience_box: true,
+            media_track_needle_width: 3.0,
+            media_track_needle_glow: true,
+            media_track_loop: false,
         }
+    }
+}
+
+#[cfg(test)]
+static MEDIA_PROBE_CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+mod probe_tests {
+    use super::*;
+    #[test]
+    fn duplicate_duration_requests_launch_one_probe() {
+        let cache = Arc::new(Mutex::new(HashMap::new()));
+        let before = MEDIA_PROBE_CALLS.load(std::sync::atomic::Ordering::Relaxed);
+        for _ in 0..100 {
+            probe_media_durations(vec!["test_deck/sample_video.mp4".into()], &cache);
+        }
+        let start = std::time::Instant::now();
+        while lock(&cache).is_empty() {
+            assert!(start.elapsed() < std::time::Duration::from_secs(10));
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert_eq!(
+            MEDIA_PROBE_CALLS.load(std::sync::atomic::Ordering::Relaxed) - before,
+            1
+        );
     }
 }

@@ -1,7 +1,7 @@
+use serde::Deserialize;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use serde::Deserialize;
 
 pub const DEFAULT_REPO: &str = "ahmadikalkhorani/PowerBeamer";
 
@@ -45,7 +45,12 @@ pub fn parse_semver(v: &str) -> Option<(u64, u64, u64)> {
     let major = parts[0].parse::<u64>().ok()?;
     let minor = parts[1].parse::<u64>().ok()?;
     let patch = if parts.len() >= 3 {
-        parts[2].split('-').next().unwrap_or("0").parse::<u64>().unwrap_or(0)
+        parts[2]
+            .split('-')
+            .next()
+            .unwrap_or("0")
+            .parse::<u64>()
+            .unwrap_or(0)
     } else {
         0
     };
@@ -90,7 +95,10 @@ pub fn current_platform_target() -> (&'static str, &'static str) {
         ("windows", "x86_64")
     }
     #[cfg(not(any(
-        all(target_os = "macos", any(target_arch = "aarch64", target_arch = "x86_64")),
+        all(
+            target_os = "macos",
+            any(target_arch = "aarch64", target_arch = "x86_64")
+        ),
         all(target_os = "linux", target_arch = "x86_64"),
         all(target_os = "windows", target_arch = "x86_64")
     )))]
@@ -119,14 +127,20 @@ pub fn check_for_update(repo: &str) -> Result<Option<UpdateInfo>, String> {
         return Ok(None);
     }
 
-    let asset = platform_asset(&release)
-        .ok_or_else(|| format!("Release {} found, but no pre-built binaries are attached.", release.tag_name))?;
+    let asset = platform_asset(&release).ok_or_else(|| {
+        format!(
+            "Release {} found, but no pre-built binaries are attached.",
+            release.tag_name
+        )
+    })?;
     let (download_url, asset_name) = (asset.browser_download_url.clone(), asset.name.clone());
 
     Ok(Some(UpdateInfo {
         current_version: current_version.to_string(),
         latest_version: release.tag_name,
-        release_notes: release.body.unwrap_or_else(|| "No release notes provided.".to_string()),
+        release_notes: release
+            .body
+            .unwrap_or_else(|| "No release notes provided.".to_string()),
         download_url,
         asset_name,
         release_url: release.html_url,
@@ -142,7 +156,8 @@ fn platform_asset(release: &GithubRelease) -> Option<&ReleaseAsset> {
         .find(|asset| {
             let name_lower = asset.name.to_lowercase();
             name_lower.contains(os_str)
-                && (name_lower.contains(arch_str) || (arch_str == "arm64" && name_lower.contains("aarch64")))
+                && (name_lower.contains(arch_str)
+                    || (arch_str == "arm64" && name_lower.contains("aarch64")))
         })
         .or_else(|| release.assets.first())
 }
@@ -156,13 +171,18 @@ pub fn repair_stale_bundle(repo: &str) -> Result<bool, String> {
     {
         let version = env!("CARGO_PKG_VERSION");
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-        let Some(app) = enclosing_app_bundle(&exe) else { return Ok(false) };
+        let Some(app) = enclosing_app_bundle(&exe) else {
+            return Ok(false);
+        };
         let plist = std::fs::read_to_string(app.join("Contents/Info.plist")).unwrap_or_default();
         if bundle_short_version(&plist).as_deref() == Some(version) {
             return Ok(false);
         }
 
-        let url = format!("https://api.github.com/repos/{}/releases/tags/v{}", repo, version);
+        let url = format!(
+            "https://api.github.com/repos/{}/releases/tags/v{}",
+            repo, version
+        );
         let release: GithubRelease = ureq::get(&url)
             .set("User-Agent", "Presenter-AutoUpdater")
             .set("Accept", "application/vnd.github.v3+json")
@@ -185,8 +205,14 @@ pub fn repair_stale_bundle(repo: &str) -> Result<bool, String> {
 /// `CFBundleShortVersionString` from an Info.plist's XML.
 #[cfg(target_os = "macos")]
 fn bundle_short_version(plist: &str) -> Option<String> {
-    let after_key = plist.split("<key>CFBundleShortVersionString</key>").nth(1)?;
-    let value = after_key.split("<string>").nth(1)?.split("</string>").next()?;
+    let after_key = plist
+        .split("<key>CFBundleShortVersionString</key>")
+        .nth(1)?;
+    let value = after_key
+        .split("<string>")
+        .nth(1)?
+        .split("</string>")
+        .next()?;
     Some(value.trim().to_string())
 }
 
@@ -195,7 +221,8 @@ pub fn download_and_install_update<F: Fn(f32) + Send + 'static>(
     download_url: &str,
     progress_callback: F,
 ) -> Result<(), String> {
-    let current_exe = std::env::current_exe().map_err(|e| format!("Could not get current executable path: {}", e))?;
+    let current_exe = std::env::current_exe()
+        .map_err(|e| format!("Could not get current executable path: {}", e))?;
     let temp_dir = std::env::temp_dir().join(format!("presenter_update_{}", std::process::id()));
     std::fs::create_dir_all(&temp_dir).map_err(|e| format!("Failed to create temp dir: {}", e))?;
 
@@ -207,24 +234,31 @@ pub fn download_and_install_update<F: Fn(f32) + Send + 'static>(
         .call()
         .map_err(|e| format!("Failed to download update: {}", e))?;
 
-    let total_size = resp.header("Content-Length")
+    let total_size = resp
+        .header("Content-Length")
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(0);
 
     let mut reader = resp.into_reader();
-    let mut file = File::create(&archive_path).map_err(|e| format!("Failed to write update file: {}", e))?;
+    let mut file =
+        File::create(&archive_path).map_err(|e| format!("Failed to write update file: {}", e))?;
 
     let mut buffer = [0u8; 16384];
     let mut downloaded = 0u64;
+    let mut last_progress = std::time::Instant::now();
 
     loop {
-        let bytes_read = reader.read(&mut buffer).map_err(|e| format!("Download stream error: {}", e))?;
+        let bytes_read = reader
+            .read(&mut buffer)
+            .map_err(|e| format!("Download stream error: {}", e))?;
         if bytes_read == 0 {
             break;
         }
-        file.write_all(&buffer[..bytes_read]).map_err(|e| format!("Failed to write archive chunk: {}", e))?;
+        file.write_all(&buffer[..bytes_read])
+            .map_err(|e| format!("Failed to write archive chunk: {}", e))?;
         downloaded += bytes_read as u64;
-        if total_size > 0 {
+        if total_size > 0 && last_progress.elapsed() >= std::time::Duration::from_millis(100) {
+            last_progress = std::time::Instant::now();
             let progress = (downloaded as f32 / total_size as f32).clamp(0.0, 1.0);
             progress_callback(progress);
         }
@@ -232,20 +266,25 @@ pub fn download_and_install_update<F: Fn(f32) + Send + 'static>(
     progress_callback(1.0);
 
     // 2. Extract tar.gz archive
-    let tar_gz = File::open(&archive_path).map_err(|e| format!("Failed to read downloaded archive: {}", e))?;
+    let tar_gz = File::open(&archive_path)
+        .map_err(|e| format!("Failed to read downloaded archive: {}", e))?;
     let tar = flate2::read::GzDecoder::new(tar_gz);
     let mut archive = tar::Archive::new(tar);
 
     let extract_dir = temp_dir.join("extracted");
-    std::fs::create_dir_all(&extract_dir).map_err(|e| format!("Failed to create extract folder: {}", e))?;
-    archive.unpack(&extract_dir).map_err(|e| format!("Failed to unpack archive: {}", e))?;
+    std::fs::create_dir_all(&extract_dir)
+        .map_err(|e| format!("Failed to create extract folder: {}", e))?;
+    archive
+        .unpack(&extract_dir)
+        .map_err(|e| format!("Failed to unpack archive: {}", e))?;
 
     // 3a. macOS app bundle: replace the whole PowerBeamer.app (binary, Info.plist, icons,
     // signature) so the installed app is exactly the released one.
     #[cfg(target_os = "macos")]
-    if let (Some(installed_app), Some(new_app)) =
-        (enclosing_app_bundle(&current_exe), find_app_bundle_in_dir(&extract_dir))
-    {
+    if let (Some(installed_app), Some(new_app)) = (
+        enclosing_app_bundle(&current_exe),
+        find_app_bundle_in_dir(&extract_dir),
+    ) {
         replace_app_bundle(&new_app, &installed_app)?;
         let _ = std::fs::remove_dir_all(&temp_dir);
         return Ok(());
@@ -255,7 +294,10 @@ pub fn download_and_install_update<F: Fn(f32) + Send + 'static>(
     // it `powerbeamer`; `presenter` is the pre-0.1 name.
     let new_binary = find_binary_in_dir(&extract_dir, "powerbeamer")
         .or_else(|| find_binary_in_dir(&extract_dir, "presenter"))
-        .ok_or_else(|| "Could not locate the PowerBeamer executable in the downloaded release archive.".to_string())?;
+        .ok_or_else(|| {
+            "Could not locate the PowerBeamer executable in the downloaded release archive."
+                .to_string()
+        })?;
 
     // 4. Safely replace the running binary
     #[cfg(unix)]
@@ -354,7 +396,10 @@ fn replace_app_bundle(new_app: &Path, installed: &Path) -> Result<(), String> {
     })?;
     // The archive is fetched by us (not a browser) so it shouldn't be quarantined, but clear
     // the flag anyway so Gatekeeper never blocks the relaunch.
-    let _ = std::process::Command::new("xattr").args(["-cr"]).arg(&staged).status();
+    let _ = std::process::Command::new("xattr")
+        .args(["-cr"])
+        .arg(&staged)
+        .status();
 
     std::fs::rename(installed, &backup).map_err(|e| {
         let _ = std::fs::remove_dir_all(&staged);
@@ -415,7 +460,11 @@ pub fn restart_application() {
     // Relaunch a bundled app through LaunchServices so macOS picks up the new bundle
     // (Info.plist, icon, signature) rather than just re-running the executable.
     #[cfg(target_os = "macos")]
-    if let Some(app) = std::env::current_exe().ok().as_deref().and_then(enclosing_app_bundle) {
+    if let Some(app) = std::env::current_exe()
+        .ok()
+        .as_deref()
+        .and_then(enclosing_app_bundle)
+    {
         let args: Vec<String> = std::env::args().skip(1).collect();
         let mut cmd = std::process::Command::new("open");
         cmd.arg("-n").arg(&app);
@@ -456,23 +505,41 @@ mod tests {
         let new_app = root.join("extracted/PowerBeamer.app");
         write(&new_app.join("Contents/MacOS/powerbeamer"), "new binary");
         write(&new_app.join("Contents/Info.plist"), "0.1.1");
-        std::os::unix::fs::symlink("powerbeamer", new_app.join("Contents/MacOS/presenter")).unwrap();
+        std::os::unix::fs::symlink("powerbeamer", new_app.join("Contents/MacOS/presenter"))
+            .unwrap();
 
-        assert_eq!(enclosing_app_bundle(&installed.join("Contents/MacOS/powerbeamer")), Some(installed.clone()));
-        assert_eq!(find_app_bundle_in_dir(&root.join("extracted")), Some(new_app.clone()));
+        assert_eq!(
+            enclosing_app_bundle(&installed.join("Contents/MacOS/powerbeamer")),
+            Some(installed.clone())
+        );
+        assert_eq!(
+            find_app_bundle_in_dir(&root.join("extracted")),
+            Some(new_app.clone())
+        );
 
         replace_app_bundle(&new_app, &installed).unwrap();
         let read = |p: &str| std::fs::read_to_string(installed.join(p)).unwrap();
         assert_eq!(read("Contents/MacOS/powerbeamer"), "new binary");
         assert_eq!(read("Contents/Info.plist"), "0.1.1");
-        assert!(!installed.join("Contents/MacOS/stale_leftover").exists(), "old files are gone");
-        assert!(installed.join("Contents/MacOS/presenter").is_symlink(), "symlinks preserved");
-        assert!(!installed.with_extension("app.old").exists() && !installed.with_extension("app.updating").exists());
+        assert!(
+            !installed.join("Contents/MacOS/stale_leftover").exists(),
+            "old files are gone"
+        );
+        assert!(
+            installed.join("Contents/MacOS/presenter").is_symlink(),
+            "symlinks preserved"
+        );
+        assert!(
+            !installed.with_extension("app.old").exists()
+                && !installed.with_extension("app.updating").exists()
+        );
         assert_eq!(
-            bundle_short_version("<dict>\n  <key>CFBundleShortVersionString</key>\n  <string>0.1.1</string>\n</dict>").as_deref(),
+            bundle_short_version(
+                "<dict>\n  <key>CFBundleShortVersionString</key>\n  <string>0.1.1</string>\n</dict>"
+            )
+            .as_deref(),
             Some("0.1.1")
         );
         let _ = std::fs::remove_dir_all(&root);
     }
 }
-

@@ -1,11 +1,11 @@
 #![allow(dead_code)]
+use image::RgbaImage;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use image::RgbaImage;
 
 /// Look for an executable in PATH or standard system paths
 pub fn find_executable(name: &str) -> Option<PathBuf> {
@@ -31,9 +31,12 @@ pub fn probe_video_duration(file_path: &str) -> f32 {
     if let Some(ffprobe) = find_executable("ffprobe") {
         let output = Command::new(ffprobe)
             .args([
-                "-v", "error",
-                "-show_entries", "format=duration",
-                "-of", "default=noprint_wrappers=1:nokey=1",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
                 file_path,
             ])
             .output();
@@ -54,10 +57,14 @@ pub fn probe_video_dimensions(file_path: &str) -> Option<(u32, u32)> {
     if let Some(ffprobe) = find_executable("ffprobe") {
         let output = Command::new(ffprobe)
             .args([
-                "-v", "error",
-                "-select_streams", "v:0",
-                "-show_entries", "stream=width,height",
-                "-of", "csv=s=x:p=0",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height",
+                "-of",
+                "csv=s=x:p=0",
                 file_path,
             ])
             .output();
@@ -74,6 +81,29 @@ pub fn probe_video_dimensions(file_path: &str) -> Option<(u32, u32)> {
     None
 }
 
+/// Two reusable decode surfaces. Slint's copy-on-write detaches a surface if a
+/// slow renderer still holds it, so reuse never mutates a displayed frame.
+pub struct VideoFrameBuffers {
+    buffers: [slint::SharedPixelBuffer<slint::Rgba8Pixel>; 2],
+    next: usize,
+}
+impl VideoFrameBuffers {
+    pub fn new(width: u32, height: u32) -> Self {
+        Self {
+            buffers: [
+                slint::SharedPixelBuffer::new(width, height),
+                slint::SharedPixelBuffer::new(width, height),
+            ],
+            next: 0,
+        }
+    }
+    pub fn next_mut(&mut self) -> &mut slint::SharedPixelBuffer<slint::Rgba8Pixel> {
+        let index = self.next;
+        self.next = (index + 1) % 2;
+        &mut self.buffers[index]
+    }
+}
+
 /// Native in-place video player that stream-decodes frames directly into Slint Image
 /// without popping up any external windows.
 pub struct InPlaceVideoPlayer {
@@ -82,6 +112,7 @@ pub struct InPlaceVideoPlayer {
     audio_proc: Arc<Mutex<Option<Child>>>,
     worker_thread: Option<JoinHandle<()>>,
     current_time: Arc<AtomicU32>,
+    generation: Arc<AtomicU64>,
 }
 
 impl InPlaceVideoPlayer {
@@ -92,6 +123,7 @@ impl InPlaceVideoPlayer {
             audio_proc: Arc::new(Mutex::new(None)),
             worker_thread: None,
             current_time: Arc::new(AtomicU32::new(0)),
+            generation: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -107,9 +139,17 @@ impl InPlaceVideoPlayer {
         self.current_time.store(time.to_bits(), Ordering::SeqCst);
     }
 
+    pub fn generation(&self) -> (Arc<AtomicU64>, u64) {
+        (
+            self.generation.clone(),
+            self.generation.load(Ordering::Acquire),
+        )
+    }
+
     pub fn stop(&mut self) {
+        self.generation.fetch_add(1, Ordering::AcqRel);
         self.is_playing.store(false, Ordering::SeqCst);
-        self.current_time.store(0.0f32.to_bits(), Ordering::SeqCst);
+        self.current_time = Arc::new(AtomicU32::new(0.0f32.to_bits()));
         if let Ok(mut lock) = self.ffmpeg_proc.lock() {
             if let Some(child) = lock.take() {
                 kill_child(child);
@@ -121,29 +161,72 @@ impl InPlaceVideoPlayer {
             }
         }
         if let Some(handle) = self.worker_thread.take() {
-            let _ = handle.join();
+            thread::spawn(move || {
+                let _ = handle.join();
+            });
         }
     }
 
     /// Plays an audio-only clip in the background. The process is owned by this player, so
     /// `pause`/`stop` end exactly this process and nothing else on the system.
     pub fn play_audio(&mut self, file_path: &str, start_time_secs: f32) -> bool {
+        self.play_audio_with_options(file_path, start_time_secs, 1.0, false)
+    }
+
+    pub fn play_audio_with_options(
+        &mut self,
+        file_path: &str,
+        start_time_secs: f32,
+        speed: f32,
+        muted: bool,
+    ) -> bool {
         self.pause();
-        self.set_current_time(start_time_secs);
-        let base_dir = std::path::Path::new(file_path).parent().unwrap_or(std::path::Path::new("."));
-        let child = if start_time_secs <= 0.01 {
-            find_executable("afplay").and_then(|bin| Command::new(bin).arg(file_path).current_dir(base_dir).spawn().ok())
-        } else {
-            None
-        }
-        .or_else(|| {
-            let bin = find_executable("ffplay")?;
+        self.is_playing = Arc::new(AtomicBool::new(false));
+        self.current_time = Arc::new(AtomicU32::new(start_time_secs.to_bits()));
+        let base_dir = std::path::Path::new(file_path)
+            .parent()
+            .unwrap_or(std::path::Path::new("."));
+        let child = if let Some(bin) = find_executable("ffplay") {
             Command::new(bin)
-                .args(["-nodisp", "-autoexit", "-loglevel", "quiet", "-ss", &format!("{:.2}", start_time_secs), file_path])
+                .args([
+                    "-nodisp",
+                    "-vn",
+                    "-autoexit",
+                    "-loglevel",
+                    "quiet",
+                    "-infbuf",
+                    "-fflags",
+                    "nobuffer",
+                    "-flags",
+                    "low_delay",
+                    "-volume",
+                    if muted { "0" } else { "100" },
+                    "-af",
+                    &audio_tempo_filter(speed),
+                    "-ss",
+                    &format!("{:.2}", start_time_secs),
+                    file_path,
+                ])
                 .current_dir(base_dir)
                 .spawn()
                 .ok()
-        });
+        } else if start_time_secs <= 0.01 {
+            find_executable("afplay").and_then(|bin| {
+                Command::new(bin)
+                    .args([
+                        "-v",
+                        if muted { "0" } else { "1" },
+                        "-r",
+                        &format!("{:.2}", speed.clamp(0.25, 4.0)),
+                        file_path,
+                    ])
+                    .current_dir(base_dir)
+                    .spawn()
+                    .ok()
+            })
+        } else {
+            None
+        };
         let started = child.is_some();
         if let Ok(mut lock) = self.audio_proc.lock() {
             *lock = child;
@@ -153,6 +236,7 @@ impl InPlaceVideoPlayer {
     }
 
     pub fn pause(&mut self) {
+        self.generation.fetch_add(1, Ordering::AcqRel);
         self.is_playing.store(false, Ordering::SeqCst);
         if let Ok(mut lock) = self.ffmpeg_proc.lock() {
             if let Some(child) = lock.take() {
@@ -165,7 +249,9 @@ impl InPlaceVideoPlayer {
             }
         }
         if let Some(handle) = self.worker_thread.take() {
-            let _ = handle.join();
+            thread::spawn(move || {
+                let _ = handle.join();
+            });
         }
     }
 
@@ -180,11 +266,11 @@ impl InPlaceVideoPlayer {
         on_eof: E,
     ) -> bool
     where
-        F: Fn(RgbaImage, f32, f32) + Send + 'static,
+        F: Fn(slint::SharedPixelBuffer<slint::Rgba8Pixel>, f32, f32) + Send + 'static,
         E: Fn() + Send + 'static,
     {
         self.pause();
-        self.set_current_time(start_time_secs);
+        self.current_time = Arc::new(AtomicU32::new(start_time_secs.to_bits()));
 
         let ffmpeg_bin = match find_executable("ffmpeg") {
             Some(bin) => bin,
@@ -194,6 +280,7 @@ impl InPlaceVideoPlayer {
             }
         };
 
+        self.is_playing = Arc::new(AtomicBool::new(true));
         let is_running = self.is_playing.clone();
         is_running.store(true, Ordering::SeqCst);
 
@@ -203,14 +290,16 @@ impl InPlaceVideoPlayer {
                 let mut cmd = Command::new(ffplay);
                 let mut args = vec![
                     "-nodisp".to_string(),
+                    "-vn".to_string(),
                     "-autoexit".to_string(),
-                    "-loglevel".to_string(), "quiet".to_string(),
-                    "-ss".to_string(), format!("{:.2}", start_time_secs),
+                    "-loglevel".to_string(),
+                    "quiet".to_string(),
+                    "-ss".to_string(),
+                    format!("{:.2}", start_time_secs),
                 ];
                 if (speed - 1.0).abs() > 0.05 {
-                    let clamped_speed = speed.clamp(0.5, 2.0);
                     args.push("-af".to_string());
-                    args.push(format!("atempo={:.2}", clamped_speed));
+                    args.push(audio_tempo_filter(speed));
                 }
                 args.push(file_path.to_string());
                 cmd.args(&args);
@@ -218,7 +307,13 @@ impl InPlaceVideoPlayer {
             } else if let Some(afplay) = find_executable("afplay") {
                 let mut cmd = Command::new(afplay);
                 let remaining = (duration - start_time_secs).max(0.1);
-                cmd.args(["-t", &format!("{:.2}", remaining), "-r", &format!("{:.2}", speed), file_path]);
+                cmd.args([
+                    "-t",
+                    &format!("{:.2}", remaining),
+                    "-r",
+                    &format!("{:.2}", speed),
+                    file_path,
+                ]);
                 cmd.spawn().ok()
             } else {
                 None
@@ -234,21 +329,28 @@ impl InPlaceVideoPlayer {
         // 2. Stream-decode frames at 30 fps
         let out_w = 640u32;
         let out_h = 360u32;
-        let vf_arg = if (speed - 1.0).abs() > 0.05 {
-            let pts_scale = 1.0 / speed.clamp(0.25, 4.0);
-            format!("setpts={:.3}*PTS,fps=30,scale={}:{}:flags=bilinear", pts_scale, out_w, out_h)
-        } else {
-            format!("fps=30,scale={}:{}:flags=bilinear", out_w, out_h)
-        };
+        // Output a fixed 30 displayed frames per second. PTS chooses source time;
+        // the worker's wall clock paces delivery once, independently of speed.
+        let pts_scale = 1.0 / speed.clamp(0.25, 4.0);
+        let vf_arg = format!(
+            "setpts={:.6}*PTS,fps=30,scale={}:{}:flags=bilinear",
+            pts_scale, out_w, out_h
+        );
 
         let mut ffmpeg_cmd = Command::new(ffmpeg_bin);
         ffmpeg_cmd.args([
-            "-loglevel", "quiet",
-            "-ss", &format!("{:.2}", start_time_secs),
-            "-i", file_path,
-            "-vf", &vf_arg,
-            "-f", "rawvideo",
-            "-pix_fmt", "rgba",
+            "-loglevel",
+            "quiet",
+            "-ss",
+            &format!("{:.2}", start_time_secs),
+            "-i",
+            file_path,
+            "-vf",
+            &vf_arg,
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgba",
             "pipe:1",
         ]);
         ffmpeg_cmd.stdout(Stdio::piped());
@@ -277,22 +379,30 @@ impl InPlaceVideoPlayer {
 
         let is_running_clone = is_running.clone();
         let current_time_clone = self.current_time.clone();
-        let frame_size = (out_w * out_h * 4) as usize;
 
         let handle = thread::spawn(move || {
             let mut reader = stdout;
-            let mut buffer = vec![0u8; frame_size];
             let mut cur_time = start_time_secs;
             let clamped_speed = speed.clamp(0.25, 4.0);
-            let frame_dur = std::time::Duration::from_secs_f64((1.0 / 30.0) / clamped_speed as f64);
+            let frame_dur = std::time::Duration::from_secs_f64(1.0 / 30.0);
             let mut next_frame_instant = std::time::Instant::now();
-            let dt = (1.0 / 30.0) * speed;
+            let dt = (1.0 / 30.0) * clamped_speed;
+            let mut buffers = VideoFrameBuffers::new(out_w, out_h);
 
             while is_running_clone.load(Ordering::SeqCst) {
-                match reader.read_exact(&mut buffer) {
+                let pixel_buf = buffers.next_mut();
+                match reader.read_exact(pixel_buf.make_mut_bytes()) {
                     Ok(()) => {
-                        let pixel_buf = image::RgbaImage::from_raw(out_w, out_h, buffer.clone())
-                            .unwrap_or_else(|| image::RgbaImage::new(out_w, out_h));
+                        if !is_running_clone.load(Ordering::Acquire) {
+                            break;
+                        }
+                        let now = std::time::Instant::now();
+                        if now < next_frame_instant {
+                            thread::sleep(next_frame_instant - now);
+                        }
+                        if !is_running_clone.load(Ordering::Acquire) {
+                            break;
+                        }
 
                         cur_time += dt;
                         current_time_clone.store(cur_time.to_bits(), Ordering::SeqCst);
@@ -302,13 +412,12 @@ impl InPlaceVideoPlayer {
                             0.0
                         };
 
-                        on_frame(pixel_buf, cur_time, progress);
+                        on_frame(pixel_buf.clone(), cur_time, progress);
 
-                        let now = std::time::Instant::now();
-                        if now < next_frame_instant {
-                            thread::sleep(next_frame_instant - now);
-                        }
-                        next_frame_instant = std::cmp::max(std::time::Instant::now(), next_frame_instant + frame_dur);
+                        next_frame_instant = std::cmp::max(
+                            std::time::Instant::now(),
+                            next_frame_instant + frame_dur,
+                        );
                     }
                     Err(_) => {
                         break;
@@ -335,13 +444,20 @@ impl InPlaceVideoPlayer {
 
         let output = Command::new(ffmpeg_bin)
             .args([
-                "-loglevel", "quiet",
-                "-ss", &format!("{:.2}", time_secs),
-                "-i", file_path,
-                "-vf", &vf_arg,
-                "-vframes", "1",
-                "-f", "rawvideo",
-                "-pix_fmt", "rgba",
+                "-loglevel",
+                "quiet",
+                "-ss",
+                &format!("{:.2}", time_secs),
+                "-i",
+                file_path,
+                "-vf",
+                &vf_arg,
+                "-vframes",
+                "1",
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                "rgba",
                 "pipe:1",
             ])
             .output()
@@ -349,7 +465,9 @@ impl InPlaceVideoPlayer {
 
         let frame_size = (out_w * out_h * 4) as usize;
         if output.stdout.len() >= frame_size {
-            image::RgbaImage::from_raw(out_w, out_h, output.stdout[..frame_size].to_vec())
+            let mut pixels = output.stdout;
+            pixels.truncate(frame_size);
+            image::RgbaImage::from_raw(out_w, out_h, pixels)
         } else {
             None
         }
@@ -362,7 +480,6 @@ impl Drop for InPlaceVideoPlayer {
     }
 }
 
-
 /// Kills a child process and reaps it on a background thread so no zombie is left behind
 /// and the caller never blocks.
 fn kill_child(mut child: Child) {
@@ -370,4 +487,37 @@ fn kill_child(mut child: Child) {
     thread::spawn(move || {
         let _ = child.wait();
     });
+}
+
+fn audio_tempo_filter(speed: f32) -> String {
+    let mut speed = speed.clamp(0.25, 4.0);
+    let mut filters = Vec::new();
+    while speed < 0.5 {
+        filters.push("atempo=0.5".to_string());
+        speed /= 0.5;
+    }
+    while speed > 2.0 {
+        filters.push("atempo=2.0".to_string());
+        speed /= 2.0;
+    }
+    filters.push(format!("atempo={speed:.4}"));
+    filters.join(",")
+}
+
+#[cfg(test)]
+mod control_tests {
+    #[test]
+    fn audio_speed_filter_preserves_every_supported_speed() {
+        for speed in [0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 4.0] {
+            let product: f32 = super::audio_tempo_filter(speed)
+                .split(',')
+                .map(|s| {
+                    let factor = s.strip_prefix("atempo=").unwrap().parse::<f32>().unwrap();
+                    assert!((0.5..=2.0).contains(&factor));
+                    factor
+                })
+                .product();
+            assert!((product - speed).abs() < 0.0001);
+        }
+    }
 }

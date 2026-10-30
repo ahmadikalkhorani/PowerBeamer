@@ -3567,6 +3567,7 @@ dependencies = [
  "chrono",
  "flate2",
  "image",
+ "memmap2",
  "pdfium-render",
  "rfd",
  "serde",
@@ -3574,6 +3575,7 @@ dependencies = [
  "slint",
  "slint-build",
  "tar",
+ "tempfile",
  "ureq",
  "zip",
 ]

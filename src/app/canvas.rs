@@ -5,6 +5,7 @@ use std::time::Duration;
 use slint::ComponentHandle;
 
 use super::context::AppContext;
+use super::scheduling::{DemandTimer, coalesce_at_redraw};
 use super::ui::*;
 use crate::ink::{self, LaserTrail, Point, Stroke};
 use crate::pdf::PdfLinkTarget;
@@ -12,133 +13,177 @@ use crate::*;
 
 /// Wires canvas input and its animation timers.
 pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
-    let AppContext { state, presenter_window, audience_window, update_ink_overlay, update_slide_view, video_player, .. } = ctx;
+    let AppContext {
+        state,
+        presenter_window,
+        audience_window,
+        update_ink_overlay,
+        update_slide_view,
+        video_player,
+        ..
+    } = ctx;
 
     // --- LASER TRAIL DECAY TIMER (16ms / 60 FPS) ---
-    let laser_decay_timer = slint::Timer::default();
-    {
+    let laser_decay_timer = {
         let state = state.clone();
         let update_ink = update_ink_overlay.clone();
-        laser_decay_timer.start(slint::TimerMode::Repeated, Duration::from_millis(16), move || {
-            let mut st = state.borrow_mut();
-            if let Some(trail) = st.laser_trail.as_mut() {
-                if !trail.is_empty() {
-                    let now_ms = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_millis() as u64;
-                    trail.prune(now_ms);
-                    if trail.is_empty() {
-                        st.laser_trail = None;
+        let active_state = state.clone();
+        DemandTimer::new(
+            Duration::from_millis(16),
+            move || active_state.borrow().laser_trail.is_some(),
+            move || {
+                let mut st = state.borrow_mut();
+                if let Some(trail) = st.laser_trail.as_mut() {
+                    if !trail.is_empty() {
+                        let now_ms = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64;
+                        trail.prune(now_ms);
+                        if trail.is_empty() {
+                            st.laser_trail = None;
+                        }
+                        drop(st);
+                        update_ink();
                     }
-                    drop(st);
-                    update_ink();
                 }
-            }
-        });
-    }
+            },
+        )
+    };
 
     // --- DRAW AND HOLD AUTO SHAPE & LINK INTERACTIVE TIMER (25ms) ---
-    let shape_check_timer = slint::Timer::default();
-    {
+    let shape_check_timer = {
         let state = state.clone();
         let update_ink = update_ink_overlay.clone();
         let update_view = update_slide_view.clone();
         let presenter_handle = presenter_window.as_weak();
-        shape_check_timer.start(slint::TimerMode::Repeated, Duration::from_millis(25), move || {
-            let mut st = state.borrow_mut();
+        let active_state = state.clone();
+        let mut last_checked = None;
+        DemandTimer::new(
+            Duration::from_millis(25),
+            move || {
+                let st = active_state.borrow();
+                st.pointer_is_down
+                    && ((!st.link_triggered && st.active_link_target.is_some())
+                        || (!st.is_shape_snapped
+                            && (st.auto_shape_enabled || st.scribble_to_erase)))
+            },
+            move || {
+                let mut st = state.borrow_mut();
 
-            // Check interactive PDF link touch & hold (activates on ~380ms hold)
-            if st.pointer_is_down && !st.link_triggered {
-                if let Some(link) = st.active_link_target.clone() {
-                    if let Some(start_time) = st.link_press_start {
-                        let elapsed_ms = start_time.elapsed().as_millis() as f32;
-                        let hold_thresh = 380.0;
-                        let progress = (elapsed_ms / hold_thresh).min(1.0);
-
-                        if let Some(p) = presenter_handle.upgrade() {
-                            p.set_link_hold_progress(progress);
-                            p.set_link_holding(true);
-                        }
-
-                        if elapsed_ms >= hold_thresh {
-                            st.link_triggered = true;
-                            st.link_press_start = None;
-                            st.active_stroke = None;
-                            st.raw_stroke_backup.clear();
+                // Check interactive PDF link touch & hold (activates on ~380ms hold)
+                if st.pointer_is_down && !st.link_triggered {
+                    if let Some(link) = st.active_link_target.clone() {
+                        if let Some(start_time) = st.link_press_start {
+                            let elapsed_ms = start_time.elapsed().as_millis() as f32;
+                            let hold_thresh = 380.0;
+                            let progress = (elapsed_ms / hold_thresh).min(1.0);
 
                             if let Some(p) = presenter_handle.upgrade() {
-                                p.set_link_holding(false);
-                                p.set_link_hold_progress(0.0);
+                                p.set_link_hold_progress(progress);
+                                p.set_link_holding(true);
                             }
 
-                            match link.target {
-                                PdfLinkTarget::Url(url) => {
-                                    println!("Touch & Hold triggered PDF link: {}", url);
-                                    open_external_url(&url);
-                                    drop(st);
-                                    update_ink();
-                                    return;
+                            if elapsed_ms >= hold_thresh {
+                                st.link_triggered = true;
+                                st.link_press_start = None;
+                                st.active_stroke = None;
+                                st.raw_stroke_backup.clear();
+
+                                if let Some(p) = presenter_handle.upgrade() {
+                                    p.set_link_holding(false);
+                                    p.set_link_hold_progress(0.0);
                                 }
-                                PdfLinkTarget::Page(dest_idx) => {
-                                    println!("Touch & Hold triggered PDF destination: jump to slide {}", dest_idx + 1);
-                                    if st.deck.jump_to(dest_idx) {
+
+                                match link.target {
+                                    PdfLinkTarget::Url(url) => {
+                                        println!("Touch & Hold triggered PDF link: {}", url);
+                                        open_external_url(&url);
                                         drop(st);
-                                        update_view();
                                         update_ink();
                                         return;
+                                    }
+                                    PdfLinkTarget::Page(dest_idx) => {
+                                        println!(
+                                            "Touch & Hold triggered PDF destination: jump to slide {}",
+                                            dest_idx + 1
+                                        );
+                                        if st.deck.jump_to(dest_idx) {
+                                            drop(st);
+                                            update_view();
+                                            update_ink();
+                                            return;
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            if !st.pointer_is_down || st.is_shape_snapped || !(st.auto_shape_enabled || st.scribble_to_erase) {
-                return;
-            }
-            let elapsed_ms = st.last_pointer_move_time.elapsed().as_millis() as u64;
-            if elapsed_ms < st.hold_delay_ms {
-                return;
-            }
+                if !st.pointer_is_down
+                    || st.is_shape_snapped
+                    || !(st.auto_shape_enabled || st.scribble_to_erase)
+                {
+                    return;
+                }
+                let elapsed_ms = st.last_pointer_move_time.elapsed().as_millis() as u64;
+                if elapsed_ms < st.hold_delay_ms {
+                    return;
+                }
 
-            // Check scribble to erase first if enabled
-            if st.scribble_to_erase && ink::ShapeRecognizer::is_scribble(&st.raw_stroke_backup) {
-                println!("Scribble-to-erase triggered on hold!");
-                let (min_x, min_y, max_x, max_y) = ink::ShapeRecognizer::bounding_box(&st.raw_stroke_backup);
-                let cx = (min_x + max_x) * 0.5;
-                let cy = (min_y + max_y) * 0.5;
-                let r = ((max_x - min_x).max(max_y - min_y) * 0.7).max(0.04);
-                st.deck.current_slide_mut().inking.erase_at(cx, cy, r);
-                st.active_stroke = None;
-                st.is_shape_snapped = true;
-                drop(st);
-                update_ink();
-                return;
-            }
+                let signature = st
+                    .active_stroke
+                    .as_ref()
+                    .map(|s| (s.id, s.points.len(), st.last_pointer_move_time));
+                if signature == last_checked {
+                    return;
+                }
+                last_checked = signature;
 
-            if !st.auto_shape_enabled {
-                return;
-            }
+                // Check scribble to erase first if enabled
+                if st.scribble_to_erase && ink::ShapeRecognizer::is_scribble(&st.raw_stroke_backup)
+                {
+                    println!("Scribble-to-erase triggered on hold!");
+                    let (min_x, min_y, max_x, max_y) =
+                        ink::ShapeRecognizer::bounding_box(&st.raw_stroke_backup);
+                    let cx = (min_x + max_x) * 0.5;
+                    let cy = (min_y + max_y) * 0.5;
+                    let r = ((max_x - min_x).max(max_y - min_y) * 0.7).max(0.04);
+                    st.deck.current_slide_mut().inking.erase_at(cx, cy, r);
+                    st.active_stroke = None;
+                    st.is_shape_snapped = true;
+                    drop(st);
+                    update_ink();
+                    return;
+                }
 
-            // Auto shape recognition: snap to regular shape while pointer is held down!
-            let aspect = st.deck.current_slide().aspect_ratio;
-            if let Some(stroke) = st.active_stroke.as_mut() {
-                if stroke.points.len() >= 3 {
-                    if let Some(recognized) = ink::ShapeRecognizer::recognize_with_aspect(&stroke.points, stroke.is_highlighter, aspect) {
-                        println!("Auto Shape recognized while holding: {:?}", recognized.kind);
-                        stroke.points = recognized.points;
-                        stroke.is_shape = true;
-                        stroke.recompute_bounding_box();
-                        st.is_shape_snapped = true;
-                        drop(st);
-                        update_ink();
+                if !st.auto_shape_enabled {
+                    return;
+                }
+
+                // Auto shape recognition: snap to regular shape while pointer is held down!
+                let aspect = st.deck.current_slide().aspect_ratio;
+                if let Some(stroke) = st.active_stroke.as_mut() {
+                    if stroke.points.len() >= 3 {
+                        if let Some(recognized) = ink::ShapeRecognizer::recognize_with_aspect(
+                            &stroke.points,
+                            stroke.is_highlighter,
+                            aspect,
+                        ) {
+                            println!("Auto Shape recognized while holding: {:?}", recognized.kind);
+                            stroke.points = recognized.points;
+                            stroke.is_shape = true;
+                            stroke.recompute_bounding_box();
+                            st.is_shape_snapped = true;
+                            drop(st);
+                            update_ink();
+                        }
                     }
                 }
-            }
-        });
-    }
+            },
+        )
+    };
 
     // --- INKING & LASER CANVAS POINTER HANDLERS ---
     {
@@ -147,7 +192,11 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
         let presenter_handle = presenter_window.as_weak();
         let audience_handle = audience_window.as_weak();
 
+        let laser_timer = laser_decay_timer.clone();
+        let shape_timer = shape_check_timer.clone();
         presenter_window.on_canvas_pointer_down(move |x, y, pressure| {
+            laser_timer.wake();
+            shape_timer.wake();
             let mut st = state.borrow_mut();
             let now_ms = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -163,7 +212,11 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
             // Detect interactive PDF link on pointer down
             let hit_link = st.deck.current_slide().find_link_at(x, y, 0.015).cloned();
             st.active_link_target = hit_link.clone();
-            st.link_press_start = if hit_link.is_some() { Some(std::time::Instant::now()) } else { None };
+            st.link_press_start = if hit_link.is_some() {
+                Some(std::time::Instant::now())
+            } else {
+                None
+            };
             st.link_triggered = false;
 
             // Detect media clip under pointer on pointer down (tolerance 0.015)
@@ -177,10 +230,16 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                 }
             }
 
+            if st.media_tracking_tool_active {
+                st.drawing_track_box = Some((x, y, x, y));
+                return;
+            }
+
             match st.current_tool {
                 ActiveTool::Pen => {
                     st.stroke_counter += 1;
-                    let mut stroke = Stroke::new(st.stroke_counter, st.active_color, st.stroke_width, false);
+                    let mut stroke =
+                        Stroke::new(st.stroke_counter, st.active_color, st.stroke_width, false);
                     let pt = Point::new(x, y, pressure, now_ms);
                     stroke.add_point(pt);
                     st.raw_stroke_backup.push(pt);
@@ -190,7 +249,8 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                 }
                 ActiveTool::Highlighter => {
                     st.stroke_counter += 1;
-                    let mut stroke = Stroke::new(st.stroke_counter, st.active_color, st.stroke_width, true);
+                    let mut stroke =
+                        Stroke::new(st.stroke_counter, st.active_color, st.stroke_width, true);
                     stroke.is_tape = st.highlighter_mode == 1;
                     if st.highlighter_straight_lines {
                         stroke.is_shape = true;
@@ -211,7 +271,11 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                         erase_shapes: st.erase_shapes,
                         erase_tapes: st.erase_tapes,
                     };
-                    let erased = st.deck.current_slide_mut().inking.erase_at_with_options(x, y, &opts);
+                    let erased = st
+                        .deck
+                        .current_slide_mut()
+                        .inking
+                        .erase_at_with_options(x, y, &opts);
                     if erased {
                         drop(st);
                         update_ink();
@@ -224,7 +288,10 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                         if stroke.is_tape && stroke.intersects_circle(x, y, 0.03) {
                             stroke.is_tape_revealed = !stroke.is_tape_revealed;
                             toggled_tape = true;
-                            println!("Tape #{} toggled: revealed = {}", stroke.id, stroke.is_tape_revealed);
+                            println!(
+                                "Tape #{} toggled: revealed = {}",
+                                stroke.id, stroke.is_tape_revealed
+                            );
                             break;
                         }
                     }
@@ -278,6 +345,20 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
         let presenter_handle = presenter_window.as_weak();
         let audience_handle = audience_window.as_weak();
 
+        let p_redraw = presenter_window.as_weak();
+        let a_redraw = audience_window.as_weak();
+        let update_ink = coalesce_at_redraw(
+            update_ink,
+            &[presenter_window.window(), audience_window.window()],
+            std::rc::Rc::new(move || {
+                if let Some(p) = p_redraw.upgrade() {
+                    p.window().request_redraw();
+                }
+                if let Some(a) = a_redraw.upgrade() {
+                    a.window().request_redraw();
+                }
+            }),
+        );
         presenter_window.on_canvas_pointer_move(move |x, y, pressure| {
             let mut st = state.borrow_mut();
             let now_ms = std::time::SystemTime::now()
@@ -291,14 +372,31 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                 if let Some(p) = presenter_handle.upgrade() {
                     if let Some(link) = hover_link {
                         p.set_hovered_on_link(true);
-                        let hint = if st.current_tool == ActiveTool::Laser { "Click to open" } else { "Touch & hold to open" };
-                        p.set_hovered_link_tooltip(slint::SharedString::from(format!("{} ({})", link.tooltip, hint)));
+                        let hint = if st.current_tool == ActiveTool::Laser {
+                            "Click to open"
+                        } else {
+                            "Touch & hold to open"
+                        };
+                        p.set_hovered_link_tooltip(slint::SharedString::from(format!(
+                            "{} ({})",
+                            link.tooltip, hint
+                        )));
                     } else if let Some(clip_idx) = hover_media {
                         p.set_hovered_on_link(true);
                         let clip = &st.deck.current_slide().media_clips[clip_idx];
                         let media_type = if clip.is_audio() { "Audio" } else { "Video" };
-                        let active_tag = if clip_idx == st.active_clip_index() { " [Active]" } else { "" };
-                        p.set_hovered_link_tooltip(slint::SharedString::from(format!("Click to select {} #{}: {}{}", media_type, clip_idx + 1, clip.display_path, active_tag)));
+                        let active_tag = if clip_idx == st.active_clip_index() {
+                            " [Active]"
+                        } else {
+                            ""
+                        };
+                        p.set_hovered_link_tooltip(slint::SharedString::from(format!(
+                            "Click to select {} #{}: {}{}",
+                            media_type,
+                            clip_idx + 1,
+                            clip.display_path,
+                            active_tag
+                        )));
                     } else {
                         p.set_hovered_on_link(false);
                         p.set_hovered_link_tooltip(slint::SharedString::new());
@@ -306,7 +404,9 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                 }
             } else {
                 if st.active_link_target.is_some() {
-                    let dist = ((x - st.hold_anchor_pos.0).powi(2) + (y - st.hold_anchor_pos.1).powi(2)).sqrt();
+                    let dist = ((x - st.hold_anchor_pos.0).powi(2)
+                        + (y - st.hold_anchor_pos.1).powi(2))
+                    .sqrt();
                     if dist > 0.02 {
                         st.active_link_target = None;
                         st.link_press_start = None;
@@ -317,11 +417,21 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                     }
                 }
                 if st.active_media_target.is_some() {
-                    let dist = ((x - st.hold_anchor_pos.0).powi(2) + (y - st.hold_anchor_pos.1).powi(2)).sqrt();
+                    let dist = ((x - st.hold_anchor_pos.0).powi(2)
+                        + (y - st.hold_anchor_pos.1).powi(2))
+                    .sqrt();
                     if dist > 0.02 {
                         st.active_media_target = None;
                     }
                 }
+            }
+
+            if st.media_tracking_tool_active && st.pointer_is_down {
+                if let Some(ref mut tr_box) = st.drawing_track_box {
+                    tr_box.2 = x;
+                    tr_box.3 = y;
+                }
+                return;
             }
 
             if st.active_stroke.is_none() {
@@ -339,7 +449,11 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                         erase_shapes: st.erase_shapes,
                         erase_tapes: st.erase_tapes,
                     };
-                    let erased = st.deck.current_slide_mut().inking.erase_at_with_options(x, y, &opts);
+                    let erased = st
+                        .deck
+                        .current_slide_mut()
+                        .inking
+                        .erase_at_with_options(x, y, &opts);
                     if erased {
                         st.cached_ink_overlay = None;
                         drop(st);
@@ -428,7 +542,8 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                 return;
             }
 
-            let dist = ((x - st.hold_anchor_pos.0).powi(2) + (y - st.hold_anchor_pos.1).powi(2)).sqrt();
+            let dist =
+                ((x - st.hold_anchor_pos.0).powi(2) + (y - st.hold_anchor_pos.1).powi(2)).sqrt();
             if dist > 0.012 {
                 st.hold_anchor_pos = (x, y);
                 st.last_pointer_move_time = std::time::Instant::now();
@@ -559,13 +674,18 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
             }
 
             let elapsed_ms = st.last_pointer_move_time.elapsed().as_millis() as u64;
-            let should_snap = !st.is_shape_snapped && st.auto_shape_enabled && elapsed_ms >= st.hold_delay_ms;
+            let should_snap =
+                !st.is_shape_snapped && st.auto_shape_enabled && elapsed_ms >= st.hold_delay_ms;
 
             if should_snap {
                 let aspect = st.deck.current_slide().aspect_ratio;
                 if let Some(stroke) = st.active_stroke.as_mut() {
                     if stroke.points.len() >= 3 {
-                        if let Some(recognized) = ink::ShapeRecognizer::recognize_with_aspect(&stroke.points, stroke.is_highlighter, aspect) {
+                        if let Some(recognized) = ink::ShapeRecognizer::recognize_with_aspect(
+                            &stroke.points,
+                            stroke.is_highlighter,
+                            aspect,
+                        ) {
                             stroke.points = recognized.points;
                             stroke.is_shape = true;
                             stroke.recompute_bounding_box();
@@ -589,6 +709,44 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
             };
             st.is_shape_snapped = false;
             st.raw_stroke_backup.clear();
+
+            if st.media_tracking_tool_active {
+                st.media_tracking_tool_active = false;
+                if let Some(p) = presenter_handle.upgrade() {
+                    p.set_media_track_tool_active(false);
+                }
+                if let Some((x1, y1, x2, y2)) = st.drawing_track_box.take() {
+                    let min_x = x1.min(x2).clamp(0.0, 1.0);
+                    let max_x = x1.max(x2).clamp(0.0, 1.0);
+                    let min_y = y1.min(y2).clamp(0.0, 1.0);
+                    let max_y = y1.max(y2).clamp(0.0, 1.0);
+                    let box_w = max_x - min_x;
+                    let box_h = max_y - min_y;
+
+                    if box_w > 0.02 && box_h > 0.02 {
+                        let box_rect = [min_x, min_y, box_w, box_h];
+                        st.deck.current_slide_mut().audio_progress_box = Some(box_rect);
+                        println!("Audio timeline tracking box set: {:?}", box_rect);
+
+                        if let Some(p) = presenter_handle.upgrade() {
+                            p.set_media_track_box_defined(true);
+                            p.set_media_track_box_x(min_x);
+                            p.set_media_track_box_y(min_y);
+                            p.set_media_track_box_w(box_w);
+                            p.set_media_track_box_h(box_h);
+                            show_toast(&p, "Spectrogram audio timeline box set".to_string(), false);
+                        }
+                        if let Some(a) = audience_handle.upgrade() {
+                            a.set_media_track_box_defined(true);
+                            a.set_media_track_box_x(min_x);
+                            a.set_media_track_box_y(min_y);
+                            a.set_media_track_box_w(box_w);
+                            a.set_media_track_box_h(box_h);
+                        }
+                    }
+                }
+                return;
+            }
 
             if st.current_tool == ActiveTool::Select {
                 if let Some((x1, y1, x2, y2)) = st.selection_box.take() {
@@ -614,7 +772,10 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                         st.zoom_level = new_zoom;
                         st.zoom_pan_x = center_x;
                         st.zoom_pan_y = center_y;
-                        println!("Selected zoom: {:.2}x at ({:.3}, {:.3})", new_zoom, center_x, center_y);
+                        println!(
+                            "Selected zoom: {:.2}x at ({:.3}, {:.3})",
+                            new_zoom, center_x, center_y
+                        );
                         drop(st);
                         update_view();
                         update_ink();
@@ -643,13 +804,14 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
 
             if st.current_tool == ActiveTool::Eraser && st.auto_select_previous_tool {
                 let prev = st.previous_tool;
-                st.current_tool = prev;
+                drop(st);
                 if let Some(p) = presenter_handle.upgrade() {
-                    p.set_current_tool(prev);
+                    p.invoke_tool_selected(prev);
                 }
                 println!("Auto-selected previous tool: {:?}", prev);
+            } else {
+                drop(st);
             }
-            drop(st);
             if has_stroke {
                 update_ink();
             }
@@ -698,5 +860,5 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
         });
     }
 
-    vec![laser_decay_timer, shape_check_timer]
+    Vec::new()
 }

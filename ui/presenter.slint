@@ -78,32 +78,39 @@ export struct TocItemModel {
 
 
 component PresenterActionItem inherits Rectangle {
-    in property <string> icon: "";
+    in property <image> icon;
     in property <string> label: "";
     in property <bool> is_disabled: false;
     in property <bool> is_danger: false;
     callback clicked();
 
-    height: 28px;
+    height: 30px;
+    horizontal-stretch: 0;
     border-radius: 6px;
-    background: is_disabled ? transparent : (touch.has-hover ? #2e2e34 : transparent);
+    background: root.is_disabled ? transparent : (touch.pressed ? (root.is_danger ? #49272c : #34343c) : (touch.has-hover ? (root.is_danger ? #352327 : #2a2a30) : transparent));
+    animate background { duration: 100ms; }
 
     HorizontalLayout {
-        padding-left: 8px;
-        padding-right: 8px;
-        spacing: 6px;
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 7px;
         alignment: center;
 
-        Text {
-            text: root.icon;
-            color: root.is_disabled ? #4b5563 : (root.is_danger ? #f87171 : #d1d5db);
-            font-size: 13px;
-            vertical-alignment: center;
+        Rectangle {
+            width: 16px;
+            vertical-stretch: 1;
+            Image {
+                source: root.icon;
+                width: 16px;
+                height: 16px;
+                y: (parent.height - self.height) / 2;
+                image-fit: contain;
+                colorize: root.is_disabled ? #52525b : (root.is_danger ? #f87171 : #a1a1aa);
+            }
         }
-
         Text {
             text: root.label;
-            color: root.is_disabled ? #4b5563 : (root.is_danger ? #f87171 : #e5e7eb);
+            color: root.is_disabled ? #52525b : (root.is_danger ? #f87171 : #e4e4e7);
             font-size: 12px;
             font-weight: 500;
             vertical-alignment: center;
@@ -112,6 +119,7 @@ component PresenterActionItem inherits Rectangle {
 
     touch := TouchArea {
         enabled: !root.is_disabled;
+        mouse-cursor: pointer;
         clicked => { root.clicked(); }
     }
 }
@@ -603,6 +611,7 @@ export component PresenterWindow inherits Window {
     property <length> quality_menu_anchor_x;
     property <length> quality_menu_anchor_y;
     property <color> timer_color: root.timer_status == 2 ? #ef4444 : (root.timer_status == 1 ? #f59e0b : #10b981);
+    property <bool> notes_editor_focused: false;
     in-out property <string> notes_text: "LaTeX Beamer Notes:\n• Key takeaway: asymptotic complexity is O(N log N)\n• Emphasize theorem 3.2 on next transition";
     in-out property <image> current_slide_image;
     in-out property <image> next_slide_image;
@@ -681,6 +690,25 @@ export component PresenterWindow inherits Window {
     in-out property <float> media_rect_w: 0.70;
     in-out property <float> media_rect_h: 0.50;
 
+    // Spectrogram/Waveform Audio Progress Tracking Box (normalized 0..1 coordinates)
+    in-out property <bool> media_track_box_defined: false;
+    in-out property <float> media_track_box_x: 0.0;
+    in-out property <float> media_track_box_y: 0.0;
+    in-out property <float> media_track_box_w: 0.0;
+    in-out property <float> media_track_box_h: 0.0;
+    in-out property <bool> media_track_tool_active: false;
+    in-out property <bool> show_media_track_popover: false;
+    in-out property <int> media_track_fps_mode: 0; // 0: Auto (Quality-linked), 1: 15 fps, 2: 30 fps, 3: 60 fps
+    in-out property <bool> media_track_show_audience_box: true;
+    in-out property <float> media_track_needle_width: 3.0; // 2.0, 3.0, 4.0
+    in-out property <bool> media_track_needle_glow: true;
+    in-out property <bool> media_track_loop: false;
+    in-out property <bool> media_track_dragging: false;
+    in-out property <float> media_track_drag_x0: 0.0;
+    in-out property <float> media_track_drag_y0: 0.0;
+    in-out property <float> media_track_drag_x1: 0.0;
+    in-out property <float> media_track_drag_y1: 0.0;
+
     // Draggable Floating Media Controller Properties
     in-out property <length> media_ctrl_x: -1px;
     in-out property <length> media_ctrl_y: -1px;
@@ -757,6 +785,13 @@ export component PresenterWindow inherits Window {
     callback toggle_media_speed();
     callback toggle_media_speech();
     callback select_media_clip(int);
+    callback toggle_media_track_tool();
+    callback clear_media_track_box();
+    callback set_media_track_fps_mode(int);
+    callback set_media_track_show_audience_box(bool);
+    callback set_media_track_needle_width(float);
+    callback set_media_track_needle_glow(bool);
+    callback set_media_track_loop(bool);
     callback tool_selected(ActiveTool);
     callback color_changed(color);
     callback color_wheel_touched(length, length);
@@ -790,6 +825,7 @@ export component PresenterWindow inherits Window {
     callback canvas_pointer_up();
     callback export_pdf();
     callback open_pdf();
+    callback reveal_source_file();
     in-out property <bool> deck_loading: false;
     in-out property <bool> toast_visible: false;
     in-out property <string> toast_text: "";
@@ -848,7 +884,6 @@ export component PresenterWindow inherits Window {
     in-out property <bool> show_insert_page_modal: false;
     in-out property <int> insert_position_mode: 0; // 0: After current page, 1: Before current page, 2: At the end
     in-out property <int> selected_template_kind: 1; // 0: Current, 1: Blank, 2: Ruled, 3: Grid, 4: Dotted
-    in-out property <int> selected_paper_tab: 1; // 0: Cover, 1: Paper
     in-out property <int> selected_paper_color_index: 1; // 0: White, 1: Ivory, 2: Yellow, 3: Dark, 4: Green
 
     callback move_slide(int, int); // from_slide (1-based), to_slide (1-based)
@@ -924,8 +959,16 @@ export component PresenterWindow inherits Window {
             } else if (root.show_color_popover) {
                 root.show_color_popover = false;
                 return true;
+            } else if (root.show_media_track_popover) {
+                root.show_media_track_popover = false;
+                return true;
             } else if (root.show_thumbnails) {
                 root.show_thumbnails = false;
+                return true;
+            } else if (root.notes_drawer_open) {
+                root.notes_drawer_open = false;
+                root.notes_editor_focused = false;
+                key-handler.focus();
                 return true;
             } else if (root.media_playing || root.media_video_visible) {
                 root.stop_media();
@@ -936,14 +979,25 @@ export component PresenterWindow inherits Window {
             } else {
                 return false;
             }
+        } else if (ctrl || meta) {
+            // Command shortcuts must not fall through to single-letter tools.
+            if ((text == "z" || text == "Z") && !shift) {
+                root.undo(); return true;
+            } else if (text == "y" || text == "Y" || ((text == "z" || text == "Z") && shift)) {
+                root.redo(); return true;
+            }
+            return false;
+        } else if (text == Key.Tab || text == "Tab") {
+            root.show_thumbnails = !root.show_thumbnails;
+            return true;
+        } else if (text == "s" || text == "S") {
+            root.swap_screens();
+            return true;
         } else if (text == "b" || text == "B") {
             root.toggle_blackout();
             return true;
         } else if (text == "w" || text == "W") {
             root.toggle_whiteout();
-            return true;
-        } else if (text == "s" || text == "S") {
-            root.swap_screens();
             return true;
         } else if (text == "j" || text == "J") {
             root.next_frame();
@@ -1032,12 +1086,6 @@ export component PresenterWindow inherits Window {
         } else if (text == "n" || text == "N" || text == "+") {
             root.add_whiteboard_page();
             return true;
-        } else if (text == "z" && (ctrl || meta) && !shift) {
-            root.undo();
-            return true;
-        } else if ((text == "y" || (text == "z" && shift)) && (ctrl || meta)) {
-            root.redo();
-            return true;
         } else if ((text == "z" || text == "Z") && !ctrl && !meta) {
             if (root.zoom_level > 1.0) {
                 root.zoom_level = 1.0;
@@ -1054,17 +1102,21 @@ export component PresenterWindow inherits Window {
     }
 
     key-handler := FocusScope {
+        width: 100%;
+        height: 100%;
         key-pressed(event) => {
-            if (root.handle_key(event.text, event.modifiers.control, event.modifiers.meta, event.modifiers.shift)) {
+            if (root.notes_editor_focused && root.notes_drawer_open && event.text != Key.Escape) { reject }
+            else if (root.handle_key(event.text, event.modifiers.control, event.modifiers.meta, event.modifiers.shift)) {
                 accept
             } else {
                 reject
             }
         }
-    }
 
     // MAIN LAYOUT
     VerticalLayout {
+        width: 100%;
+        height: 100%;
         padding: 0px;
         spacing: 0px;
 
@@ -1254,6 +1306,60 @@ export component PresenterWindow inherits Window {
                         }
                         touch-folder := TouchArea {
                             clicked => { root.open_pdf(); }
+                        }
+                    }
+
+                    // Reveal in File Manager / Directory button (enabled when a file is open)
+                    if root.has_source_file: Rectangle {
+                        width: 28px;
+                        height: 28px;
+                        border-radius: 6px;
+                        background: touch-reveal.has-hover ? #2e2e34 : transparent;
+                        y: 10px;
+                        Image {
+                            source: @image-url("icons/reveal_folder.svg");
+                            width: 17px;
+                            height: 17px;
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            colorize: touch-reveal.has-hover ? #60a5fa : #9ca3af;
+                        }
+                        touch-reveal := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { root.reveal_source_file(); }
+                        }
+
+                        if touch-reveal.has-hover: Rectangle {
+                            width: reveal_tooltip_layout.preferred-width;
+                            height: reveal_tooltip_layout.preferred-height;
+                            x: (parent.width - self.width) / 2;
+                            y: 34px;
+                            border-radius: 6px;
+                            background: #141416f5;
+                            border-width: 1px;
+                            border-color: #3b82f670;
+                            drop-shadow-blur: 10px;
+                            drop-shadow-color: #000000cc;
+                            z: 100;
+
+                            reveal_tooltip_layout := VerticalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                padding-top: 5px;
+                                padding-bottom: 5px;
+                                spacing: 2px;
+                                Text {
+                                    text: "Reveal in File Manager";
+                                    font-size: 11px;
+                                    font-weight: 700;
+                                    color: #ffffff;
+                                }
+                                Text {
+                                    text: "Open the folder containing this presentation";
+                                    font-size: 10px;
+                                    color: #a1a1aa;
+                                }
+                            }
                         }
                     }
                 }
@@ -1558,25 +1664,7 @@ export component PresenterWindow inherits Window {
                         }
                     }
 
-                    // Screen Swap Button (S)
-                    PresenterHeaderBtn {
-                        is_active: root.is_screen_swapped;
-                        active_bg: #7c3aed;
-                        active_border: #a78bfa;
-                        tooltip_title: "Swap Displays";
-                        shortcut: "Swap";
-                        tooltip_hint: "Swap Presenter and Audience screen output";
-                        clicked => { root.swap_screens(); }
 
-                        Image {
-                            source: @image-url("icons/swap_screens.svg");
-                            width: 18px;
-                            height: 18px;
-                            x: (parent.width - self.width) / 2;
-                            y: (parent.height - self.height) / 2;
-                            colorize: root.is_screen_swapped ? root.active_color : #ffffff;
-                        }
-                    }
 
                     // Document Outline / TOC Drawer Button (O)
                     PresenterHeaderBtn {
@@ -1674,40 +1762,42 @@ export component PresenterWindow inherits Window {
 
         // --- Presenter SECONDARY ACTION BAR (Page Management Toolbar) ---
         if root.show_thumbnails: Rectangle {
-            height: 38px;
+            height: 44px;
             background: #18181c;
             border-width: 1px;
             border-color: #28282e;
             z: 90;
 
             HorizontalLayout {
-                padding-left: 20px;
+                padding-left: 60px;
                 padding-right: 20px;
-                spacing: 18px;
+                padding-top: 6px;
+                padding-bottom: 6px;
+                spacing: 4px;
                 alignment: start;
 
                 PresenterActionItem {
-                    icon: "+";
+                    icon: @image-url("icons/add_page.svg");
                     label: "Insert";
                     clicked => { root.show_insert_page_modal = true; }
                 }
                 PresenterActionItem {
-                    icon: "✂";
+                    icon: @image-url("icons/cut.svg");
                     label: "Cut";
                     clicked => { root.delete_slide(root.current_slide); }
                 }
                 PresenterActionItem {
-                    icon: "📑";
+                    icon: @image-url("icons/duplicate.svg");
                     label: "Duplicate";
                     clicked => { root.duplicate_slide(root.current_slide); }
                 }
                 PresenterActionItem {
-                    icon: "🔄";
+                    icon: @image-url("icons/rotate.svg");
                     label: "Rotate";
                     clicked => { root.rotate_slide(root.current_slide); }
                 }
                 PresenterActionItem {
-                    icon: "🗑";
+                    icon: @image-url("icons/trash.svg");
                     label: "Delete";
                     is_danger: true;
                     clicked => { root.delete_slide(root.current_slide); }
@@ -1944,7 +2034,7 @@ export component PresenterWindow inherits Window {
                             root.show_color_popover = false;
                         }
                         Image {
-                            source: @image-url("icons/select.svg");
+                            source: @image-url("icons/zoom.svg");
                             width: 22px;
                             height: 22px;
                             x: 8px;
@@ -2179,11 +2269,15 @@ export component PresenterWindow inherits Window {
                 background: #000000;
                 clip: true;
 
-                ScrollView {
+                overview_scroll := ScrollView {
                     width: 100%;
                     height: 100%;
+                    content-width: self.width;
+                    content-height: overview_canvas.height;
 
                     overview_canvas := Rectangle {
+                        x: 0px;
+                        y: 0px;
                         property <length> min_margin: 28px;
                         property <length> spacing_x: 24px;
                         property <length> spacing_y: 28px;
@@ -2203,9 +2297,15 @@ export component PresenterWindow inherits Window {
                         width: 100%;
                         height: max(parent.height, 56px + (self.rows * (self.item_h + self.spacing_y)));
 
-                        for thumb[i] in root.slide_thumbnails: card_item := Rectangle {
-                            property <int> grid_row: Math.floor(i / overview_canvas.cols);
-                            property <int> grid_col: i - self.grid_row * overview_canvas.cols;
+                        // Keep one row of overscan above/below; all items retain their global indices.
+                        property <int> first_visible_row: max(0, Math.floor((-overview_scroll.content-y / 1px - 32) / ((self.item_h + self.spacing_y) / 1px)) - 1);
+                        property <int> first_visible_index: self.first_visible_row * self.cols;
+                        property <int> visible_count: max(0, min(root.total_slides - self.first_visible_index, (Math.ceil(overview_scroll.height / (self.item_h + self.spacing_y)) + 3) * self.cols));
+                        for visible_index in overview_canvas.visible_count: card_item := Rectangle {
+                            property <int> slide_index: visible_index + overview_canvas.first_visible_index;
+                            property <SlideThumbnail> thumb: root.slide_thumbnails[self.slide_index];
+                            property <int> grid_row: Math.floor(self.slide_index / overview_canvas.cols);
+                            property <int> grid_col: self.slide_index - self.grid_row * overview_canvas.cols;
 
                             x: overview_canvas.auto_margin_x + self.grid_col * (overview_canvas.card_w + overview_canvas.spacing_x);
                             y: 32px + self.grid_row * (overview_canvas.item_h + overview_canvas.spacing_y);
@@ -2219,7 +2319,7 @@ export component PresenterWindow inherits Window {
                                 y: 0px;
 
                                 // Drop Target Insertion Glow & Indicator
-                                if root.is_dragging_page && root.drag_target_index == thumb.index && root.dragging_page_index != thumb.index: Rectangle {
+                                if root.is_dragging_page && root.drag_target_index == card_item.thumb.index && root.dragging_page_index != card_item.thumb.index: Rectangle {
                                     width: 100%;
                                     height: 100%;
                                     border-radius: 6px;
@@ -2252,28 +2352,28 @@ export component PresenterWindow inherits Window {
                                 page_card := Rectangle {
                                     width: 100%;
                                     height: 100%;
-                                    background: (root.is_dragging_page && root.dragging_page_index == thumb.index) ? #18181b : #ffffff;
+                                    background: (root.is_dragging_page && root.dragging_page_index == card_item.thumb.index) ? #18181b : #ffffff;
                                     border-radius: 4px;
                                     drop-shadow-blur: 16px;
                                     drop-shadow-color: #000000cc;
-                                    border-width: (thumb.index == root.current_slide) ? 2.5px : 1px;
-                                    border-color: (thumb.index == root.current_slide) ? #007aff : (card_touch.has-hover ? #4b5563 : #27272a);
-                                    opacity: (root.is_dragging_page && root.dragging_page_index == thumb.index) ? 0.30 : (root.is_dragging_page ? 0.65 : 1.0);
+                                    border-width: (card_item.thumb.index == root.current_slide) ? 2.5px : 1px;
+                                    border-color: (card_item.thumb.index == root.current_slide) ? #007aff : (card_touch.has-hover ? #4b5563 : #27272a);
+                                    opacity: (root.is_dragging_page && root.dragging_page_index == card_item.thumb.index) ? 0.30 : (root.is_dragging_page ? 0.65 : 1.0);
                                     clip: true;
 
                                     // Slide Content Image
                                     Image {
                                         width: 100%;
                                         height: 100%;
-                                        source: thumb.image;
+                                        source: card_item.thumb.image;
                                         image-fit: contain;
                                     }
 
                                     // Source slot ghost label while being dragged
-                                    if root.is_dragging_page && root.dragging_page_index == thumb.index: Rectangle {
+                                    if root.is_dragging_page && root.dragging_page_index == card_item.thumb.index: Rectangle {
                                         background: #09090bcc;
                                         Text {
-                                            text: "Moving Slide " + thumb.index;
+                                            text: "Moving Slide " + card_item.thumb.index;
                                             color: #a1a1aa;
                                             font-size: 12px;
                                             font-weight: 600;
@@ -2283,7 +2383,7 @@ export component PresenterWindow inherits Window {
                                     }
 
                                     // Blue Zoom/Inspect Badge on Top-Left matching Presenter exactly
-                                    if thumb.index == root.current_slide && !root.is_dragging_page: Rectangle {
+                                    if card_item.thumb.index == root.current_slide && !root.is_dragging_page: Rectangle {
                                         x: 6px;
                                         y: 6px;
                                         width: 22px;
@@ -2310,14 +2410,14 @@ export component PresenterWindow inherits Window {
                                         if event.kind == PointerEventKind.down {
                                             root.drag_start_mouse_x = self.mouse-x;
                                             root.drag_start_mouse_y = self.mouse-y;
-                                            root.dragging_page_index = thumb.index;
-                                            root.drag_target_index = thumb.index;
-                                            root.dragging_slide_image = thumb.image;
+                                            root.dragging_page_index = card_item.thumb.index;
+                                            root.drag_target_index = card_item.thumb.index;
+                                            root.dragging_slide_image = card_item.thumb.image;
                                             root.drag_offset_x = 0px;
                                             root.drag_offset_y = 0px;
                                             root.is_dragging_page = false;
                                         } else if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel {
-                                            if root.dragging_page_index == thumb.index {
+                                            if root.dragging_page_index == card_item.thumb.index {
                                                 let did_drag = root.is_dragging_page;
                                                 let from_idx = root.dragging_page_index;
                                                 let to_idx = root.drag_target_index;
@@ -2333,11 +2433,11 @@ export component PresenterWindow inherits Window {
                                                         root.move_slide(from_idx, to_idx);
                                                     }
                                                 } else {
-                                                    if root.current_slide == thumb.index {
+                                                    if root.current_slide == card_item.thumb.index {
                                                         root.show_thumbnails = false;
                                                     } else {
-                                                        root.current_slide = thumb.index;
-                                                        root.jump_to_slide(thumb.index);
+                                                        root.current_slide = card_item.thumb.index;
+                                                        root.jump_to_slide(card_item.thumb.index);
                                                     }
                                                 }
                                             }
@@ -2345,7 +2445,7 @@ export component PresenterWindow inherits Window {
                                     }
 
                                     moved => {
-                                        if self.pressed && root.dragging_page_index == thumb.index {
+                                        if self.pressed && root.dragging_page_index == card_item.thumb.index {
                                             let dx = self.mouse-x - root.drag_start_mouse_x;
                                             let dy = self.mouse-y - root.drag_start_mouse_y;
                                             root.drag_offset_x = dx;
@@ -2360,7 +2460,7 @@ export component PresenterWindow inherits Window {
                                                 let step_y = overview_canvas.item_h + overview_canvas.spacing_y;
                                                 let col_delta = Math.round((dx / 1px) / (step_x / 1px));
                                                 let row_delta = Math.round((dy / 1px) / (step_y / 1px));
-                                                let target = max(1, min(root.total_slides, thumb.index + row_delta * overview_canvas.cols + col_delta));
+                                                let target = max(1, min(root.total_slides, card_item.thumb.index + row_delta * overview_canvas.cols + col_delta));
                                                 root.drag_target_index = target;
                                             }
                                         }
@@ -2375,9 +2475,9 @@ export component PresenterWindow inherits Window {
                                 min-width: 56px;
                                 x: (parent.width - self.width) / 2;
                                 border-radius: 6px;
-                                background: (thumb.index == root.current_slide) ? #007aff : (card_touch.has-hover ? #2e2e34 : #1f1f23);
+                                background: (card_item.thumb.index == root.current_slide) ? #007aff : (card_touch.has-hover ? #2e2e34 : #1f1f23);
                                 border-width: 1px;
-                                border-color: (thumb.index == root.current_slide) ? #60a5fa : ((root.is_dragging_page && root.drag_target_index == thumb.index) ? #38bdf8 : #2e2e34);
+                                border-color: (card_item.thumb.index == root.current_slide) ? #60a5fa : ((root.is_dragging_page && root.drag_target_index == card_item.thumb.index) ? #38bdf8 : #2e2e34);
 
                                 HorizontalLayout {
                                     alignment: center;
@@ -2387,13 +2487,13 @@ export component PresenterWindow inherits Window {
 
                                     Text {
                                         text: "⠿";
-                                        color: (thumb.index == root.current_slide) ? #ffffffcc : #71717a;
+                                        color: (card_item.thumb.index == root.current_slide) ? #ffffffcc : #71717a;
                                         font-size: 11px;
                                         vertical-alignment: center;
                                     }
 
                                     Text {
-                                        text: thumb.index;
+                                        text: card_item.thumb.index;
                                         color: #ffffff;
                                         font-size: 13px;
                                         font-weight: 700;
@@ -2538,13 +2638,31 @@ export component PresenterWindow inherits Window {
                         background: transparent;
                     }
 
-                    // Vector Inking Overlay
-                    Image {
-                        width: 100%;
-                        height: 100%;
-                        source: root.ink_overlay_image;
-                        image-fit: fill;
+                    // Spectrogram / Waveform Audio Progress Bounding Box & Moving Needle
+                    if root.media_track_box_defined: Rectangle {
+                        x: root.media_track_box_x * parent.width;
+                        y: root.media_track_box_y * parent.height;
+                        width: root.media_track_box_w * parent.width;
+                        height: root.media_track_box_h * parent.height;
+                        border-width: 1.5px;
+                        border-color: root.media_track_tool_active ? root.active_color : (root.media_playing ? root.active_color.transparentize(0.5) : #71717a66);
+                        background: root.media_track_tool_active ? root.active_color.transparentize(0.92) : transparent;
+                        clip: false;
+
+                        // Vertical progress scan needle (moves from left to right linked to audio playback)
+                        if root.media_playing: Rectangle {
+                            x: (parent.width * max(0.0, min(1.0, root.media_progress))) - (root.media_track_needle_width * 0.5px);
+                            y: 0px;
+                            width: root.media_track_needle_width * 1px;
+                            height: parent.height;
+                            background: root.active_color;
+                            drop-shadow-blur: root.media_track_needle_glow ? 6px : 0px;
+                            drop-shadow-color: root.media_track_needle_glow ? root.active_color : transparent;
+                        }
                     }
+
+                    // Vector Inking Overlay
+                    Image { width: 100%; height: 100%; source: root.ink_overlay_image; image-fit: fill; }
 
                     LaserVectorTrail {
                         width: 100%;
@@ -2563,7 +2681,7 @@ export component PresenterWindow inherits Window {
                     }
 
                     // Laser pointer dot & glow (Multi-layer neon bloom with hot core)
-                    if root.laser_active: Rectangle {
+                    if root.laser_active && !root.media_track_tool_active: Rectangle {
                         width: 32px;
                         height: 32px;
                         x: (root.laser_x * parent.width) - 16px;
@@ -2606,7 +2724,7 @@ export component PresenterWindow inherits Window {
                     }
 
                     // Eraser cursor circle indicator
-                    if root.current_tool == ActiveTool.Eraser && touch_canvas.has-hover: Rectangle {
+                    if !root.media_track_tool_active && root.current_tool == ActiveTool.Eraser && touch_canvas.has-hover: Rectangle {
                         width: 28px;
                         height: 28px;
                         x: (root.laser_x * parent.width) - 14px;
@@ -2627,6 +2745,17 @@ export component PresenterWindow inherits Window {
                         border-width: 1.5px;
                         border-color: #3b82f6;
                         background: #3b82f633;
+                    }
+
+                    // Media Timeline Track Box Drawing Rubber-Band (screen space)
+                    if root.media_track_dragging: Rectangle {
+                        x: min(root.media_track_drag_x0, root.media_track_drag_x1) * parent.width;
+                        y: min(root.media_track_drag_y0, root.media_track_drag_y1) * parent.height;
+                        width: abs(root.media_track_drag_x1 - root.media_track_drag_x0) * parent.width;
+                        height: abs(root.media_track_drag_y1 - root.media_track_drag_y0) * parent.height;
+                        border-width: 1.5px;
+                        border-color: root.active_color;
+                        background: root.active_color.transparentize(0.85);
                     }
 
                     // End of Slide Show Black Screen Overlay
@@ -2683,7 +2812,7 @@ export component PresenterWindow inherits Window {
                     // Interactive touch area for drawing / laser / eraser
                     touch_canvas := TouchArea {
                         mouse-cursor: root.hovered_on_link ? MouseCursor.pointer : (
-                            (root.current_tool == ActiveTool.Pen || root.current_tool == ActiveTool.Highlighter || root.current_tool == ActiveTool.Eraser || root.current_tool == ActiveTool.Laser) ? MouseCursor.none :
+                            (root.media_track_tool_active || root.current_tool == ActiveTool.Pen || root.current_tool == ActiveTool.Highlighter || root.current_tool == ActiveTool.Eraser || root.current_tool == ActiveTool.Laser) ? MouseCursor.none :
                             MouseCursor.crosshair
                         );
                         pointer-event(event) => {
@@ -2720,7 +2849,13 @@ export component PresenterWindow inherits Window {
                             root.laser_x = norm_x;
                             root.laser_y = norm_y;
                             if (event.kind == PointerEventKind.down) {
-                                if (root.current_tool == ActiveTool.Select) {
+                                if (root.media_track_tool_active) {
+                                    root.media_track_drag_x0 = scr_x;
+                                    root.media_track_drag_y0 = scr_y;
+                                    root.media_track_drag_x1 = scr_x;
+                                    root.media_track_drag_y1 = scr_y;
+                                    root.media_track_dragging = true;
+                                } else if (root.current_tool == ActiveTool.Select) {
                                     root.sel_x0 = scr_x;
                                     root.sel_y0 = scr_y;
                                     root.sel_x1 = scr_x;
@@ -2732,7 +2867,7 @@ export component PresenterWindow inherits Window {
                                 root.show_highlighter_popover = false;
                                 root.show_eraser_popover = false;
                                 root.show_laser_popover = false;
-                                if (root.current_tool == ActiveTool.Laser) {
+                                if (!root.media_track_tool_active && root.current_tool == ActiveTool.Laser) {
                                     root.laser_active = true;
                                 }
                                 root.canvas_pointer_down(norm_x, norm_y, 1.0);
@@ -2741,6 +2876,7 @@ export component PresenterWindow inherits Window {
                                     root.laser_active = false;
                                 }
                                 root.sel_dragging = false;
+                                root.media_track_dragging = false;
                                 root.canvas_pointer_up();
                             }
                         }
@@ -2749,7 +2885,10 @@ export component PresenterWindow inherits Window {
                             let scr_y = max(0.0, min(1.0, (self.mouse-y / 1px) / (self.height / 1px)));
                             let norm_x = paper_box.zpx + (scr_x - 0.5) / paper_box.zl;
                             let norm_y = paper_box.zpy + (scr_y - 0.5) / paper_box.zl;
-                            if (root.sel_dragging) {
+                            if (root.media_track_dragging) {
+                                root.media_track_drag_x1 = scr_x;
+                                root.media_track_drag_y1 = scr_y;
+                            } else if (root.sel_dragging) {
                                 root.sel_x1 = scr_x;
                                 root.sel_y1 = scr_y;
                             }
@@ -2761,13 +2900,13 @@ export component PresenterWindow inherits Window {
 
                     // In-canvas custom tool-shaped cursor matching selected tool
                     if touch_canvas.has-hover && !root.hovered_on_link: Rectangle {
-                        x: touch_canvas.mouse-x - (root.current_tool == ActiveTool.Eraser ? 12px : (root.current_tool == ActiveTool.Laser ? 7px : 2px));
-                        y: touch_canvas.mouse-y - (root.current_tool == ActiveTool.Eraser ? 12px : (root.current_tool == ActiveTool.Laser ? 7px : 2px));
-                        width: 24px;
-                        height: 24px;
+                        x: touch_canvas.mouse-x - (root.media_track_tool_active ? 8px : (root.current_tool == ActiveTool.Eraser ? 12px : (root.current_tool == ActiveTool.Laser ? 7px : 2px)));
+                        y: touch_canvas.mouse-y - (root.media_track_tool_active ? 8px : (root.current_tool == ActiveTool.Eraser ? 12px : (root.current_tool == ActiveTool.Laser ? 7px : 2px)));
+                        width: root.media_track_tool_active ? 16px : 24px;
+                        height: root.media_track_tool_active ? 16px : 24px;
                         clip: false;
 
-                        if root.current_tool == ActiveTool.Pen: Rectangle {
+                        if !root.media_track_tool_active && root.current_tool == ActiveTool.Pen: Rectangle {
                             width: 24px;
                             height: 24px;
                             Image {
@@ -2784,7 +2923,7 @@ export component PresenterWindow inherits Window {
                                 background: root.active_color;
                             }
                         }
-                        if root.current_tool == ActiveTool.Highlighter: Rectangle {
+                        if !root.media_track_tool_active && root.current_tool == ActiveTool.Highlighter: Rectangle {
                             width: 24px;
                             height: 24px;
                             Image {
@@ -2801,13 +2940,13 @@ export component PresenterWindow inherits Window {
                                 background: root.active_color;
                             }
                         }
-                        if root.current_tool == ActiveTool.Eraser: Image {
+                        if !root.media_track_tool_active && root.current_tool == ActiveTool.Eraser: Image {
                             source: @image-url("icons/eraser_cursor.svg");
                             width: 24px;
                             height: 24px;
                         }
 
-                        if root.current_tool == ActiveTool.Laser && !root.laser_active: Rectangle {
+                        if !root.media_track_tool_active && root.current_tool == ActiveTool.Laser && !root.laser_active: Rectangle {
                             x: 0px;
                             y: 0px;
                             width: 14px;
@@ -2824,6 +2963,15 @@ export component PresenterWindow inherits Window {
                                 border-radius: 3px;
                                 background: #ffffff;
                             }
+                        }
+
+                        // Precision Bounding-Box Cursor: track_plot_cursor.svg
+                        if root.media_track_tool_active: Image {
+                            x: 0px;
+                            y: 0px;
+                            source: @image-url("icons/track_plot_cursor.svg");
+                            width: 16px;
+                            height: 16px;
                         }
                     }
 
@@ -2887,7 +3035,7 @@ export component PresenterWindow inherits Window {
                 }
 
                 // Click-outside backdrop: intercepts clicks anywhere outside any open popover to close it safely without drawing ink
-                if (root.show_color_popover || root.show_pen_popover || root.show_highlighter_popover || root.show_eraser_popover || root.show_laser_popover): TouchArea {
+                if (root.show_color_popover || root.show_pen_popover || root.show_highlighter_popover || root.show_eraser_popover || root.show_laser_popover || root.show_media_track_popover): TouchArea {
                     width: 100%;
                     height: 100%;
                     clicked => {
@@ -2896,6 +3044,7 @@ export component PresenterWindow inherits Window {
                         root.show_highlighter_popover = false;
                         root.show_eraser_popover = false;
                         root.show_laser_popover = false;
+                        root.show_media_track_popover = false;
                     }
                 }
 
@@ -5163,6 +5312,57 @@ export component PresenterWindow inherits Window {
                                 }
                             }
 
+                            // Timeline / Spectrogram Progress Box Tool Button
+                            Rectangle {
+                                width: 32px;
+                                height: 32px;
+                                border-radius: 16px;
+                                background: root.media_track_tool_active ? root.active_color.transparentize(0.7) : (track_tool_touch.has-hover ? #ffffff2a : #ffffff14);
+                                y: 8px;
+
+                                Image {
+                                    source: @image-url("icons/track_plot.svg");
+                                    width: 17px;
+                                    height: 17px;
+                                    x: (parent.width - self.width) / 2;
+                                    y: (parent.height - self.height) / 2;
+                                    colorize: root.media_track_tool_active ? root.active_color : (root.media_track_box_defined ? #60a5fa : #ffffff);
+                                }
+
+                                track_tool_touch := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => { root.toggle_media_track_tool(); }
+                                    pointer-event(event) => {
+                                        if (event.kind == PointerEventKind.down && event.button == PointerEventButton.right) {
+                                            root.show_media_track_popover = !root.show_media_track_popover;
+                                        }
+                                    }
+                                }
+                            }
+
+                            // If box is defined, show small trash / reset icon to clear it
+                            if root.media_track_box_defined: Rectangle {
+                                width: 28px;
+                                height: 28px;
+                                border-radius: 14px;
+                                background: track_clear_touch.has-hover ? #ef444433 : #ffffff14;
+                                y: 10px;
+
+                                Image {
+                                    source: @image-url("icons/trash.svg");
+                                    width: 14px;
+                                    height: 14px;
+                                    x: (parent.width - self.width) / 2;
+                                    y: (parent.height - self.height) / 2;
+                                    colorize: track_clear_touch.has-hover ? #ef4444 : #a1a1aa;
+                                }
+
+                                track_clear_touch := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => { root.clear_media_track_box(); }
+                                }
+                            }
+
                             // Speed Button
                             Rectangle {
                                 width: 50px;
@@ -5183,6 +5383,239 @@ export component PresenterWindow inherits Window {
                                 speed_touch := TouchArea {
                                     mouse-cursor: pointer;
                                     clicked => { root.toggle_media_speed(); }
+                                }
+                            }
+                        }
+                    }
+
+                    // --- FLOATING MEDIA TRACK PLOT OPTIONS POPOVER ---
+                    if root.show_media_track_popover: Rectangle {
+                        width: 280px;
+                        height: track_opts_layout.preferred-height;
+                        x: max(16px, parent.width - self.width - 24px);
+                        y: -self.height - 10px;
+                        background: #18181dfa;
+                        border-radius: 14px;
+                        border-width: 1px;
+                        border-color: #32323e;
+                        drop-shadow-blur: 24px;
+                        drop-shadow-color: #000000dd;
+
+                        // Absorb clicks inside popover
+                        TouchArea { }
+
+                        track_opts_layout := VerticalLayout {
+                            padding: 14px;
+                            spacing: 12px;
+
+                            // Header
+                            HorizontalLayout {
+                                alignment: space-between;
+                                Text {
+                                    text: "Timeline Tracker Settings";
+                                    font-size: 13px;
+                                    font-weight: 700;
+                                    color: #f4f4f5;
+                                    vertical-alignment: center;
+                                }
+                                Rectangle {
+                                    width: 22px;
+                                    height: 22px;
+                                    border-radius: 11px;
+                                    background: close_track_opts.has-hover ? #ffffff22 : transparent;
+                                    Image {
+                                        source: @image-url("icons/close.svg");
+                                        width: 10px;
+                                        height: 10px;
+                                        x: (parent.width - self.width) / 2;
+                                        y: (parent.height - self.height) / 2;
+                                        colorize: #a1a1aa;
+                                    }
+                                    close_track_opts := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => { root.show_media_track_popover = false; }
+                                    }
+                                }
+                            }
+
+                            // 1. Refresh Rate / FPS Mode
+                            VerticalLayout {
+                                spacing: 4px;
+                                Text {
+                                    text: "Scan Rate (Smoothness)";
+                                    font-size: 11px;
+                                    font-weight: 600;
+                                    color: #9ca3af;
+                                }
+                                HorizontalLayout {
+                                    spacing: 4px;
+                                    for opt in [
+                                        { mode: 0, label: "Auto" },
+                                        { mode: 1, label: "15 fps" },
+                                        { mode: 2, label: "30 fps" },
+                                        { mode: 3, label: "60 fps" }
+                                    ]: Rectangle {
+                                        height: 26px;
+                                        horizontal-stretch: 1;
+                                        border-radius: 6px;
+                                        background: root.media_track_fps_mode == opt.mode ? root.active_color.transparentize(0.7) : (fps_touch.has-hover ? #2e2e38 : #24242c);
+                                        border-width: 1px;
+                                        border-color: root.media_track_fps_mode == opt.mode ? root.active_color : #383844;
+
+                                        Text {
+                                            text: opt.label;
+                                            font-size: 10px;
+                                            font-weight: 700;
+                                            color: root.media_track_fps_mode == opt.mode ? #ffffff : #d1d5db;
+                                            horizontal-alignment: center;
+                                            vertical-alignment: center;
+                                        }
+
+                                        fps_touch := TouchArea {
+                                            mouse-cursor: pointer;
+                                            clicked => {
+                                                root.media_track_fps_mode = opt.mode;
+                                                root.set_media_track_fps_mode(opt.mode);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 2. Audience Display Box Outline Toggle
+                            Rectangle {
+                                height: 32px;
+                                border-radius: 8px;
+                                background: aud_box_touch.has-hover ? #262630 : transparent;
+
+                                HorizontalLayout {
+                                    padding-left: 4px;
+                                    padding-right: 4px;
+                                    alignment: space-between;
+
+                                    Text {
+                                        text: "Show Box on Audience Screen";
+                                        font-size: 11px;
+                                        font-weight: 600;
+                                        color: #e4e4e7;
+                                        vertical-alignment: center;
+                                    }
+
+                                    Rectangle {
+                                        width: 38px;
+                                        height: 20px;
+                                        border-radius: 10px;
+                                        background: root.media_track_show_audience_box ? #3b82f6 : #3f3f46;
+                                        y: (parent.height - self.height) / 2;
+
+                                        Rectangle {
+                                            width: 16px;
+                                            height: 16px;
+                                            border-radius: 8px;
+                                            background: #ffffff;
+                                            x: root.media_track_show_audience_box ? 20px : 2px;
+                                            y: 2px;
+                                            animate x { duration: 120ms; easing: ease-out; }
+                                        }
+                                    }
+                                }
+
+                                aud_box_touch := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => {
+                                        root.media_track_show_audience_box = !root.media_track_show_audience_box;
+                                        root.set_media_track_show_audience_box(root.media_track_show_audience_box);
+                                    }
+                                }
+                            }
+
+                            // 3. Scan Needle Thickness
+                            VerticalLayout {
+                                spacing: 4px;
+                                Text {
+                                    text: "Scan Needle Width";
+                                    font-size: 11px;
+                                    font-weight: 600;
+                                    color: #9ca3af;
+                                }
+                                HorizontalLayout {
+                                    spacing: 4px;
+                                    for opt in [
+                                        { val: 2.0, label: "Thin (2px)" },
+                                        { val: 3.0, label: "Medium (3px)" },
+                                        { val: 4.0, label: "Thick (4px)" }
+                                    ]: Rectangle {
+                                        height: 26px;
+                                        horizontal-stretch: 1;
+                                        border-radius: 6px;
+                                        background: root.media_track_needle_width == opt.val ? root.active_color.transparentize(0.7) : (width_touch.has-hover ? #2e2e38 : #24242c);
+                                        border-width: 1px;
+                                        border-color: root.media_track_needle_width == opt.val ? root.active_color : #383844;
+
+                                        Text {
+                                            text: opt.label;
+                                            font-size: 10px;
+                                            font-weight: 700;
+                                            color: root.media_track_needle_width == opt.val ? #ffffff : #d1d5db;
+                                            horizontal-alignment: center;
+                                            vertical-alignment: center;
+                                        }
+
+                                        width_touch := TouchArea {
+                                            mouse-cursor: pointer;
+                                            clicked => {
+                                                root.media_track_needle_width = opt.val;
+                                                root.set_media_track_needle_width(opt.val);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 4. Glow / Drop-shadow Effect Toggle
+                            Rectangle {
+                                height: 32px;
+                                border-radius: 8px;
+                                background: glow_touch.has-hover ? #262630 : transparent;
+
+                                HorizontalLayout {
+                                    padding-left: 4px;
+                                    padding-right: 4px;
+                                    alignment: space-between;
+
+                                    Text {
+                                        text: "Scan Needle Glow Effect";
+                                        font-size: 11px;
+                                        font-weight: 600;
+                                        color: #e4e4e7;
+                                        vertical-alignment: center;
+                                    }
+
+                                    Rectangle {
+                                        width: 38px;
+                                        height: 20px;
+                                        border-radius: 10px;
+                                        background: root.media_track_needle_glow ? #3b82f6 : #3f3f46;
+                                        y: (parent.height - self.height) / 2;
+
+                                        Rectangle {
+                                            width: 16px;
+                                            height: 16px;
+                                            border-radius: 8px;
+                                            background: #ffffff;
+                                            x: root.media_track_needle_glow ? 20px : 2px;
+                                            y: 2px;
+                                            animate x { duration: 120ms; easing: ease-out; }
+                                        }
+                                    }
+                                }
+
+                                glow_touch := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => {
+                                        root.media_track_needle_glow = !root.media_track_needle_glow;
+                                        root.set_media_track_needle_glow(root.media_track_needle_glow);
+                                    }
                                 }
                             }
                         }
@@ -5258,7 +5691,7 @@ export component PresenterWindow inherits Window {
                                 vertical-alignment: center;
                             }
                             touch-close-notes := TouchArea {
-                                clicked => { root.notes_drawer_open = false; }
+                                clicked => { root.notes_drawer_open = false; root.notes_editor_focused = false; key-handler.focus(); }
                             }
                         }
                     }
@@ -5475,6 +5908,7 @@ export component PresenterWindow inherits Window {
                                         padding: 8px;
 
                                         comment_input := TextInput {
+                                            changed has-focus => { root.notes_editor_focused = self.has-focus; }
                                             text: root.notes_text;
                                             color: #f3f4f6;
                                             font-size: 13px;
@@ -5555,7 +5989,6 @@ export component PresenterWindow inherits Window {
                     font-weight: 700;
                     color: #9ca3af;
                     horizontal-alignment: left;
-                    padding: 0px;
                 }
 
                 for option in [
@@ -5869,52 +6302,12 @@ export component PresenterWindow inherits Window {
                     }
                 }
 
-                // 3. Category Tabs: [Cover] [Paper]
-                HorizontalLayout {
-                    spacing: 8px;
-                    alignment: start;
-
-                    Rectangle {
-                        width: 76px;
-                        height: 32px;
-                        border-radius: 8px;
-                        background: (root.selected_paper_tab == 0) ? #3a3a42 : #232328;
-
-                        Text {
-                            text: "Cover";
-                            color: (root.selected_paper_tab == 0) ? #ffffff : #9ca3af;
-                            font-size: 13px;
-                            font-weight: 600;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                        }
-
-                        TouchArea {
-                            clicked => { root.selected_paper_tab = 0; }
-                        }
-                    }
-
-                    Rectangle {
-                        width: 76px;
-                        height: 32px;
-                        border-radius: 8px;
-                        background: (root.selected_paper_tab == 1) ? #3a3a42 : #232328;
-                        border-width: (root.selected_paper_tab == 1) ? 1px : 0px;
-                        border-color: #52525b;
-
-                        Text {
-                            text: "Paper";
-                            color: (root.selected_paper_tab == 1) ? #ffffff : #9ca3af;
-                            font-size: 13px;
-                            font-weight: 700;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                        }
-
-                        TouchArea {
-                            clicked => { root.selected_paper_tab = 1; }
-                        }
-                    }
+                // 3. Paper templates
+                Text {
+                    text: "Paper";
+                    color: #ffffff;
+                    font-size: 13px;
+                    font-weight: 700;
                 }
 
                 // 4. Template Cards Row: Current, Blank, Ruled, Grid, Dotted
@@ -6866,21 +7259,47 @@ export component PresenterWindow inherits Window {
                             }
                         }
                     }
+
+                    // Reveal in File Manager Button
+                    if root.has_source_file: Rectangle {
+                        height: 36px;
+                        horizontal-stretch: 1;
+                        border-radius: 8px;
+                        background: reveal_modal_touch.has-hover ? #2e2e36 : #1e1e24;
+                        border-width: 1px;
+                        border-color: #3b82f644;
+
+                        Text {
+                            text: "🔍  Reveal in Finder / Directory";
+                            color: #93c5fd;
+                            font-size: 12px;
+                            font-weight: 600;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        reveal_modal_touch := TouchArea {
+                            clicked => {
+                                root.show_updates_modal = false;
+                                root.reveal_source_file();
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 
-    // Floating Presentation Blankout / Whiteout / Screen Swap Indicator Banner
-        if !root.is_end_of_show && (root.blank_mode != 0 || root.is_screen_swapped): Rectangle {
+    // Floating Presentation Blankout / Whiteout Indicator Banner
+        if !root.is_end_of_show && root.blank_mode != 0: Rectangle {
             x: (parent.width - self.width) / 2;
             y: 56px;
             width: 440px;
             height: 38px;
             border-radius: 8px;
-            background: root.blank_mode == 1 ? #7f1d1d : (root.blank_mode == 2 ? #1e3a8a : #4c1d95);
+            background: root.blank_mode == 1 ? #7f1d1d : #1e3a8a;
             border-width: 1px;
-            border-color: root.blank_mode == 1 ? #ef4444 : (root.blank_mode == 2 ? #3b82f6 : #8b5cf6);
+            border-color: root.blank_mode == 1 ? #ef4444 : #3b82f6;
 
             HorizontalLayout {
                 padding-left: 14px;
@@ -6888,9 +7307,7 @@ export component PresenterWindow inherits Window {
                 alignment: space-between;
 
                 Text {
-                    text: root.blank_mode == 1 ? "◼ AUDIENCE SCREEN BLACKOUT (B to restore)" : (
-                        root.blank_mode == 2 ? "◻ AUDIENCE SCREEN WHITEOUT (W to restore)" : "⇄ SCREENS SWAPPED (S to swap back)"
-                    );
+                    text: root.blank_mode == 1 ? "◼ AUDIENCE SCREEN BLACKOUT (B to restore)" : "◻ AUDIENCE SCREEN WHITEOUT (W to restore)";
                     color: #ffffff;
                     font-size: 12px;
                     font-weight: 700;
@@ -6916,12 +7333,8 @@ export component PresenterWindow inherits Window {
                     TouchArea {
                         mouse-cursor: pointer;
                         clicked => {
-                            if (root.blank_mode != 0) {
-                                root.blank_mode = 0;
-                                root.toggle_blackout();
-                            } else {
-                                root.swap_screens();
-                            }
+                            root.blank_mode = 0;
+                            root.toggle_blackout();
                         }
                     }
                 }
@@ -7085,7 +7498,7 @@ export component PresenterWindow inherits Window {
         }
 
     // Toast: transient status / error messages (load failures, sync results, missing media)
-    if root.toast_visible: Rectangle {
+    if root.toast_visible || root.deck_loading: Rectangle {
         x: (root.width - self.width) / 2;
         y: root.height - self.height - 28px;
         z: 1000;
@@ -7105,7 +7518,7 @@ export component PresenterWindow inherits Window {
             padding-bottom: 8px;
             spacing: 10px;
             Text {
-                text: root.toast_text;
+                text: root.deck_loading ? "Loading presentation…" : root.toast_text;
                 color: root.toast_is_error ? #fecaca : #bbf7d0;
                 font-size: 12px;
                 wrap: word-wrap;
@@ -7128,6 +7541,7 @@ export component PresenterWindow inherits Window {
             }
         }
     }
+    } // keyboard scope encloses all presenter controls
 }
 
 // --- AUDIENCE VIEW (Clean display for Projector / External Monitor) ---
@@ -7168,6 +7582,19 @@ export component AudienceWindow inherits Window {
     in-out property <float> zoom_level: 1.0;
     in-out property <float> zoom_pan_x: 0.0;
     in-out property <float> zoom_pan_y: 0.0;
+
+    // Spectrogram/Waveform Audio Progress Tracking Box on Audience display
+    in-out property <bool> media_track_box_defined: false;
+    in-out property <float> media_track_box_x: 0.0;
+    in-out property <float> media_track_box_y: 0.0;
+    in-out property <float> media_track_box_w: 0.0;
+    in-out property <float> media_track_box_h: 0.0;
+    in-out property <bool> media_playing: false;
+    in-out property <float> media_progress: 0.0;
+    in-out property <color> tracker_color: #38bdf8;
+    in-out property <bool> media_track_show_box: true;
+    in-out property <float> media_track_needle_width: 3.0;
+    in-out property <bool> media_track_needle_glow: true;
 
     // Pointer input on the audience slide, handled exactly like the presenter canvas
     callback canvas_pointer_down(float, float, float);
@@ -7245,11 +7672,29 @@ export component AudienceWindow inherits Window {
                 }
             }
 
-            Image {
-                width: 100%;
-                height: 100%;
-                source: root.ink_image;
-                image-fit: fill;
+            Image { width: 100%; height: 100%; source: root.ink_image; image-fit: fill; }
+
+            // Spectrogram / Waveform Audio Progress Bounding Box & Moving Needle for Audience
+            if root.media_track_box_defined: Rectangle {
+                x: root.media_track_box_x * parent.width;
+                y: root.media_track_box_y * parent.height;
+                width: root.media_track_box_w * parent.width;
+                height: root.media_track_box_h * parent.height;
+                border-width: root.media_track_show_box ? 1px : 0px;
+                border-color: root.media_playing ? root.tracker_color.transparentize(0.6) : #ffffff22;
+                background: transparent;
+                clip: false;
+
+                // Vertical moving progress scan needle on the audience screen
+                if root.media_playing: Rectangle {
+                    x: (parent.width * max(0.0, min(1.0, root.media_progress))) - (root.media_track_needle_width * 0.5px);
+                    y: 0px;
+                    width: root.media_track_needle_width * 1px;
+                    height: parent.height;
+                    background: root.tracker_color;
+                    drop-shadow-blur: root.media_track_needle_glow ? 6px : 0px;
+                    drop-shadow-color: root.media_track_needle_glow ? root.tracker_color : transparent;
+                }
             }
 
             // Interactive touch area for drawing / laser / eraser (tools are picked in the presenter view)

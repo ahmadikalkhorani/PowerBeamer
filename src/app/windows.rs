@@ -1,23 +1,42 @@
 //! Audience/notes pop-out windows and live speaker-notes sync.
 
-
 use slint::ComponentHandle;
 
 use super::context::AppContext;
 
 /// Wires window toggles and notes editing.
 pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
-    let AppContext { state, presenter_window, audience_window, notes_window, update_slide_view, .. } = ctx;
+    let AppContext {
+        state,
+        presenter_window,
+        audience_window,
+        notes_window,
+        ..
+    } = ctx;
+
+    let presenter = presenter_window.as_weak();
+    audience_window.window().on_close_requested(move || {
+        if let Some(p) = presenter.upgrade() {
+            p.set_audience_window_open(false);
+        }
+        slint::CloseRequestResponse::HideWindow
+    });
+    let presenter = presenter_window.as_weak();
+    notes_window.window().on_close_requested(move || {
+        if let Some(p) = presenter.upgrade() {
+            p.set_notes_window_open(false);
+        }
+        slint::CloseRequestResponse::HideWindow
+    });
 
     // --- MULTI-WINDOW POP-OUT TOGGLES ---
     {
         let audience_win = audience_window.as_weak();
         let presenter_win = presenter_window.as_weak();
-        let mut is_open = false;
 
         presenter_window.on_toggle_audience_window(move || {
             if let Some(aud) = audience_win.upgrade() {
-                is_open = !is_open;
+                let is_open = !aud.window().is_visible();
                 if is_open {
                     let _ = aud.show();
                     println!("Audience Window popped out to separate monitor / display.");
@@ -35,14 +54,11 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
     {
         let notes_win = notes_window.as_weak();
         let presenter_win = presenter_window.as_weak();
-        let update_view = update_slide_view.clone();
-        let mut is_open = false;
 
         presenter_window.on_toggle_notes_window(move || {
             if let Some(notes) = notes_win.upgrade() {
-                is_open = !is_open;
+                let is_open = !notes.window().is_visible();
                 if is_open {
-                    update_view();
                     let _ = notes.show();
                     println!("Speaker Notes window popped out to floating monitor.");
                 } else {

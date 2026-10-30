@@ -103,7 +103,11 @@ impl Stroke {
 
     /// Check if an eraser circle at (cx, cy) with radius r intersects this stroke
     pub fn intersects_circle(&self, cx: f32, cy: f32, r: f32) -> bool {
-        let norm_width = if r < 1.0 { self.width / 1600.0 } else { self.width };
+        let norm_width = if r < 1.0 {
+            self.width / 1600.0
+        } else {
+            self.width
+        };
         let effective_r = r + norm_width * 0.5;
         // Bounding box quick rejection
         if cx + effective_r < self.bounding_box[0]
@@ -129,6 +133,75 @@ impl Stroke {
         false
     }
 
+    /// Clip line segments at the eraser boundary, including sparse two-point strokes.
+    fn outside_circle(&self, cx: f32, cy: f32, radius: f32) -> Vec<Stroke> {
+        let width = if radius < 1.0 {
+            self.width / 1600.0
+        } else {
+            self.width
+        };
+        let radius = radius + width * 0.5;
+        let mut fragments = Vec::new();
+        let mut points = Vec::new();
+        let finish = |points: &mut Vec<Point>, fragments: &mut Vec<Stroke>| {
+            if points.is_empty() {
+                return;
+            }
+            static ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1 << 63);
+            let mut stroke = self.clone();
+            stroke.id = ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            stroke.points = std::mem::take(points);
+            stroke.recompute_bounding_box();
+            fragments.push(stroke);
+        };
+        for pair in self.points.windows(2) {
+            let (a, b) = (pair[0], pair[1]);
+            let (dx, dy) = (b.x - a.x, b.y - a.y);
+            let length2 = dx * dx + dy * dy;
+            let mut cuts = vec![0.0, 1.0];
+            if length2 > f32::EPSILON {
+                let dot = (a.x - cx) * dx + (a.y - cy) * dy;
+                let c = (a.x - cx).powi(2) + (a.y - cy).powi(2) - radius * radius;
+                let discriminant = dot * dot - length2 * c;
+                if discriminant > 0.0 {
+                    for t in [
+                        (-dot - discriminant.sqrt()) / length2,
+                        (-dot + discriminant.sqrt()) / length2,
+                    ] {
+                        if t > 0.0 && t < 1.0 {
+                            cuts.push(t);
+                        }
+                    }
+                }
+            }
+            cuts.sort_by(f32::total_cmp);
+            let interpolate = |t: f32| {
+                Point::new(
+                    a.x + dx * t,
+                    a.y + dy * t,
+                    a.pressure + (b.pressure - a.pressure) * t,
+                    (a.timestamp_ms as f64
+                        + (b.timestamp_ms as f64 - a.timestamp_ms as f64) * t as f64)
+                        .round() as u64,
+                )
+            };
+            for interval in cuts.windows(2) {
+                let midpoint = interpolate((interval[0] + interval[1]) * 0.5);
+                if (midpoint.x - cx).powi(2) + (midpoint.y - cy).powi(2) >= radius * radius {
+                    let start = interpolate(interval[0]);
+                    if points.last() != Some(&start) {
+                        points.push(start);
+                    }
+                    points.push(interpolate(interval[1]));
+                } else {
+                    finish(&mut points, &mut fragments);
+                }
+            }
+        }
+        finish(&mut points, &mut fragments);
+        fragments
+    }
+
     /// Catmull-Rom smoothing filter to eliminate jitter from raw tablet input
     pub fn smoothed(&self) -> Vec<Point> {
         if self.is_shape || self.points.len() < 3 {
@@ -152,7 +225,11 @@ impl Stroke {
         smoothed.push(self.points[seg_from]);
 
         for i in seg_from..seg_to {
-            let p0 = if i == 0 { &self.points[0] } else { &self.points[i - 1] };
+            let p0 = if i == 0 {
+                &self.points[0]
+            } else {
+                &self.points[i - 1]
+            };
             let p1 = &self.points[i];
             let p2 = &self.points[i + 1];
             let p3 = if i + 2 < n { &self.points[i + 2] } else { p2 };
@@ -163,15 +240,17 @@ impl Stroke {
                 let t2 = t * t;
                 let t3 = t2 * t;
 
-                let x = 0.5 * ((2.0 * p1.x) +
-                    (-p0.x + p2.x) * t +
-                    (2.0 * p0.x - 5.0 * p1.x + 4.0 * p2.x - p3.x) * t2 +
-                    (-p0.x + 3.0 * p1.x - 3.0 * p2.x + p3.x) * t3);
+                let x = 0.5
+                    * ((2.0 * p1.x)
+                        + (-p0.x + p2.x) * t
+                        + (2.0 * p0.x - 5.0 * p1.x + 4.0 * p2.x - p3.x) * t2
+                        + (-p0.x + 3.0 * p1.x - 3.0 * p2.x + p3.x) * t3);
 
-                let y = 0.5 * ((2.0 * p1.y) +
-                    (-p0.y + p2.y) * t +
-                    (2.0 * p0.y - 5.0 * p1.y + 4.0 * p2.y - p3.y) * t2 +
-                    (-p0.y + 3.0 * p1.y - 3.0 * p2.y + p3.y) * t3);
+                let y = 0.5
+                    * ((2.0 * p1.y)
+                        + (-p0.y + p2.y) * t
+                        + (2.0 * p0.y - 5.0 * p1.y + 4.0 * p2.y - p3.y) * t2
+                        + (-p0.y + 3.0 * p1.y - 3.0 * p2.y + p3.y) * t3);
 
                 let pressure = p1.pressure + (p2.pressure - p1.pressure) * t;
                 smoothed.push(Point::new(x, y, pressure, p1.timestamp_ms));
@@ -213,8 +292,7 @@ pub fn point_in_polygon(px: f32, py: f32, polygon: &[Point]) -> bool {
     for i in 0..polygon.len() {
         let pi = &polygon[i];
         let pj = &polygon[j];
-        if ((pi.y > py) != (pj.y > py))
-            && (px < (pj.x - pi.x) * (py - pi.y) / (pj.y - pi.y) + pi.x)
+        if ((pi.y > py) != (pj.y > py)) && (px < (pj.x - pi.x) * (py - pi.y) / (pj.y - pi.y) + pi.x)
         {
             inside = !inside;
         }
@@ -278,7 +356,11 @@ impl LaserTrail {
                 .as_millis() as u64;
             // Trust the points' own clock when the wall clock is far off (synthetic timestamps)
             let last_t = self.last_point().map(|p| p.2).unwrap_or(wall_ms);
-            let now_ms = if wall_ms.saturating_sub(last_t) > self.duration_ms * 10 { last_t } else { wall_ms };
+            let now_ms = if wall_ms.saturating_sub(last_t) > self.duration_ms * 10 {
+                last_t
+            } else {
+                wall_ms
+            };
             if let Some(stroke) = self.strokes.last_mut() {
                 for p in stroke.iter_mut() {
                     p.2 = p.2.max(now_ms);
@@ -290,7 +372,8 @@ impl LaserTrail {
 
     /// The stroke still being drawn in line mode, which neither fades nor gets pruned.
     fn held_stroke_index(&self) -> Option<usize> {
-        (self.draw_lines && self.is_active && !self.strokes.is_empty()).then(|| self.strokes.len() - 1)
+        (self.draw_lines && self.is_active && !self.strokes.is_empty())
+            .then(|| self.strokes.len() - 1)
     }
 
     pub fn add(&mut self, x: f32, y: f32, now_ms: u64) {
@@ -326,7 +409,11 @@ impl LaserTrail {
 
     /// Generates smooth Centripetal Catmull-Rom spline interpolated points for a stroke.
     /// Returns Vec<(x: f32, y: f32, intensity: f32)> with silky continuous curvature and smooth decay.
-    pub fn smooth_stroke_points(points: &[(f32, f32, u64)], duration_ms: u64, now_ms: u64) -> Vec<(f32, f32, f32)> {
+    pub fn smooth_stroke_points(
+        points: &[(f32, f32, u64)],
+        duration_ms: u64,
+        now_ms: u64,
+    ) -> Vec<(f32, f32, f32)> {
         if points.is_empty() {
             return Vec::new();
         }
@@ -389,9 +476,18 @@ impl LaserTrail {
             let steps = ((dist * 500.0).ceil() as usize).clamp(1, 12);
 
             // Centripetal parameterization (alpha = 0.5) to prevent cusps, self-intersections, and overshoots
-            let d01 = (((p1.0 - p0.0).powi(2) + (p1.1 - p0.1).powi(2)).sqrt().max(1e-5)).sqrt();
-            let d12 = (((p2.0 - p1.0).powi(2) + (p2.1 - p1.1).powi(2)).sqrt().max(1e-5)).sqrt();
-            let d23 = (((p3.0 - p2.0).powi(2) + (p3.1 - p2.1).powi(2)).sqrt().max(1e-5)).sqrt();
+            let d01 = (((p1.0 - p0.0).powi(2) + (p1.1 - p0.1).powi(2))
+                .sqrt()
+                .max(1e-5))
+            .sqrt();
+            let d12 = (((p2.0 - p1.0).powi(2) + (p2.1 - p1.1).powi(2))
+                .sqrt()
+                .max(1e-5))
+            .sqrt();
+            let d23 = (((p3.0 - p2.0).powi(2) + (p3.1 - p2.1).powi(2))
+                .sqrt()
+                .max(1e-5))
+            .sqrt();
 
             let t0 = 0.0f32;
             let t1 = t0 + d01;
@@ -479,14 +575,22 @@ impl Default for EraserOptions {
     }
 }
 
-/// Slide Inking Model managing strokes, undo/redo, and active drawing
+/// A history entry owns only the strokes removed by that operation. Points are
+/// moved between live ink and history, never copied for unrelated edits.
+#[derive(Clone, Debug)]
+pub enum InkEdit {
+    Remove(Vec<usize>),
+    Insert(Vec<(usize, Stroke)>),
+    Batch(Vec<InkEdit>),
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SlideInking {
     pub strokes: Vec<Stroke>,
     #[serde(skip)]
-    pub undo_stack: Vec<Vec<Stroke>>,
+    pub undo_stack: Vec<InkEdit>,
     #[serde(skip)]
-    pub redo_stack: Vec<Vec<Stroke>>,
+    pub redo_stack: Vec<InkEdit>,
 }
 
 impl SlideInking {
@@ -494,71 +598,119 @@ impl SlideInking {
         Self::default()
     }
 
-    pub fn push_undo_state(&mut self) {
-        self.undo_stack.push(self.strokes.clone());
-        self.redo_stack.clear();
-    }
-
     pub fn add_stroke(&mut self, stroke: Stroke) {
-        self.push_undo_state();
+        self.undo_stack
+            .push(InkEdit::Remove(vec![self.strokes.len()]));
+        self.redo_stack.clear();
         self.strokes.push(stroke);
     }
 
     pub fn erase_at(&mut self, x: f32, y: f32, radius: f32) -> bool {
-        let mut opts = EraserOptions::default();
-        opts.radius = radius;
-        self.erase_at_with_options(x, y, &opts)
+        self.erase_at_with_options(
+            x,
+            y,
+            &EraserOptions {
+                radius,
+                erase_whole_line: true,
+                ..Default::default()
+            },
+        )
     }
 
     pub fn erase_at_with_options(&mut self, x: f32, y: f32, opts: &EraserOptions) -> bool {
-        let is_target = |stroke: &Stroke| -> bool {
-            if opts.erase_highlight_only && (!stroke.is_highlighter || stroke.is_tape) {
-                return false;
-            }
-            if !opts.erase_shapes && stroke.is_shape {
-                return false;
-            }
-            if !opts.erase_tapes && stroke.is_tape {
-                return false;
-            }
-            true
-        };
-
-        let any_hit = self.strokes.iter().any(|s| is_target(s) && s.intersects_circle(x, y, opts.radius));
-        if !any_hit {
+        let indices: Vec<usize> = self
+            .strokes
+            .iter()
+            .enumerate()
+            .filter_map(|(i, stroke)| {
+                let target = !(opts.erase_highlight_only
+                    && (!stroke.is_highlighter || stroke.is_tape))
+                    && (opts.erase_shapes || !stroke.is_shape)
+                    && (opts.erase_tapes || !stroke.is_tape);
+                (target && stroke.intersects_circle(x, y, opts.radius)).then_some(i)
+            })
+            .collect();
+        if indices.is_empty() {
             return false;
         }
-
-        self.push_undo_state();
-        self.strokes.retain(|stroke| !(is_target(stroke) && stroke.intersects_circle(x, y, opts.radius)));
+        let edit = if opts.erase_whole_line {
+            InkEdit::Remove(indices)
+        } else {
+            let mut inserted = Vec::new();
+            let mut offset: isize = 0;
+            for &index in &indices {
+                let fragments = self.strokes[index].outside_circle(x, y, opts.radius);
+                let start = (index as isize + offset) as usize;
+                offset += fragments.len() as isize - 1;
+                inserted.extend(
+                    fragments
+                        .into_iter()
+                        .enumerate()
+                        .map(|(j, s)| (start + j, s)),
+                );
+            }
+            InkEdit::Batch(vec![InkEdit::Remove(indices), InkEdit::Insert(inserted)])
+        };
+        let inverse = self.apply(edit);
+        self.undo_stack.push(inverse);
+        self.redo_stack.clear();
         true
     }
 
-    pub fn undo(&mut self) -> bool {
-        if let Some(prev) = self.undo_stack.pop() {
-            self.redo_stack.push(self.strokes.clone());
-            self.strokes = prev;
-            true
-        } else {
-            false
+    fn apply(&mut self, edit: InkEdit) -> InkEdit {
+        match edit {
+            InkEdit::Batch(edits) => {
+                let mut inverse: Vec<_> = edits.into_iter().map(|e| self.apply(e)).collect();
+                inverse.reverse();
+                InkEdit::Batch(inverse)
+            }
+            InkEdit::Remove(indices) => {
+                let mut removed = Vec::with_capacity(indices.len());
+                // Indices are ascending; removing backwards preserves their original meaning.
+                for &i in indices.iter().rev() {
+                    removed.push((i, self.strokes.remove(i)));
+                }
+                removed.reverse();
+                InkEdit::Insert(removed)
+            }
+            InkEdit::Insert(strokes) => {
+                let indices = strokes.iter().map(|(i, _)| *i).collect();
+                for (i, stroke) in strokes {
+                    self.strokes.insert(i, stroke);
+                }
+                InkEdit::Remove(indices)
+            }
         }
+    }
+
+    pub fn undo(&mut self) -> bool {
+        let Some(edit) = self.undo_stack.pop() else {
+            return false;
+        };
+        let inverse = self.apply(edit);
+        self.redo_stack.push(inverse);
+        true
     }
 
     pub fn redo(&mut self) -> bool {
-        if let Some(next) = self.redo_stack.pop() {
-            self.undo_stack.push(self.strokes.clone());
-            self.strokes = next;
-            true
-        } else {
-            false
-        }
+        let Some(edit) = self.redo_stack.pop() else {
+            return false;
+        };
+        let inverse = self.apply(edit);
+        self.undo_stack.push(inverse);
+        true
     }
 
     pub fn clear(&mut self) {
-        if !self.strokes.is_empty() {
-            self.push_undo_state();
-            self.strokes.clear();
+        if self.strokes.is_empty() {
+            return;
         }
+        let strokes = std::mem::take(&mut self.strokes)
+            .into_iter()
+            .enumerate()
+            .collect();
+        self.undo_stack.push(InkEdit::Insert(strokes));
+        self.redo_stack.clear();
     }
 }
 
@@ -607,4 +759,3 @@ mod tests {
         assert_eq!(inking.strokes.len(), 0);
     }
 }
-
