@@ -10,7 +10,7 @@ jobs:
   test:
     name: Build & Test (macOS arm64)
     # Apple Silicon runner: the bundled libpdfium.dylib is arm64 and the PDF tests need it.
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
