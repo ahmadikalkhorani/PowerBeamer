@@ -235,25 +235,48 @@ impl MediaResolver {
         }
     }
 
-    /// Extract media references mentioned in arbitrary text (e.g. PDF text streams, annotations)
+    /// Extract media references mentioned in arbitrary text (e.g. PDF text streams, annotations).
+    /// Ignores mathematical equations, LaTeX symbols, and requires realistic filename tokens.
     pub fn extract_media_from_text(text: &str) -> Vec<String> {
         let mut results = Vec::new();
         let unescaped = text.replace("\\_", "_");
         let words: Vec<&str> = unescaped.split_whitespace().collect();
 
         for word in words {
-            // Trim surrounding punctuation like ()[]{},:;'
+            // Trim surrounding punctuation and math delimiters
             let clean = word.trim_matches(|c: char| {
                 c == '(' || c == ')' || c == '[' || c == ']' || c == '{' || c == '}' ||
-                c == '"' || c == '\'' || c == ',' || c == ';' || c == '<' || c == '>'
+                c == '"' || c == '\'' || c == ',' || c == ';' || c == '<' || c == '>' ||
+                c == '$' || c == '|' || c == '\\' || c == ':' || c == '`' || c == '~'
             });
+
+            // Skip tokens that contain math operators, equation symbols, or TeX markup
+            if clean.contains('\\')
+                || clean.contains('$')
+                || clean.contains('^')
+                || clean.contains('=')
+                || clean.contains('+')
+                || clean.contains('-')
+                || clean.contains('*')
+                || clean.contains('/')
+                || clean.contains('{')
+                || clean.contains('}')
+                || clean.contains('|')
+            {
+                continue;
+            }
 
             for &ext in MEDIA_EXTENSIONS {
                 let dot_ext = format!(".{}", ext);
                 if clean.to_ascii_lowercase().ends_with(&dot_ext) {
-                    let cleaned_path = Self::clean_raw_path(clean);
-                    if !cleaned_path.is_empty() && !results.contains(&cleaned_path) {
-                        results.push(cleaned_path);
+                    let stem = &clean[..clean.len() - dot_ext.len()];
+                    // Ensure the stem before .ext looks like a genuine file name (e.g. at least 1 alphanum,
+                    // no odd punctuation, not pure symbols)
+                    if !stem.is_empty() && stem.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.') {
+                        let cleaned_path = Self::clean_raw_path(clean);
+                        if !cleaned_path.is_empty() && !results.contains(&cleaned_path) {
+                            results.push(cleaned_path);
+                        }
                     }
                     break;
                 }
@@ -715,6 +738,13 @@ impl MediaResolver {
                 .and_then(|f| f.media_rects.get(&raw).copied())
                 .unwrap_or([0.15, 0.26, 0.70, 0.50]);
 
+            // Only add clips that actually resolve to an existing media file on disk.
+            // This prevents false-positive math expressions, prose, or missing assets from
+            // spawning ghost media boxes over slides.
+            if !is_resolved {
+                continue;
+            }
+
             clips.push(MediaClip {
                 page_index,
                 file_path: canonical_str,
@@ -722,7 +752,7 @@ impl MediaResolver {
                 mime_type,
                 rect,
                 autostart: false,
-                is_resolved,
+                is_resolved: true,
             });
         }
 
@@ -836,3 +866,28 @@ impl MediaResolver {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_equations_never_detected_as_media() {
+        let math_text = r#"
+            \begin{equation}
+              \mathcal{L}(\theta) = \sum_{i=1}^N \log p(y_i \mid x_i; \theta) - \frac{\lambda}{2}\|\theta\|_2^2
+            \end{equation}
+            Action S[A] = -1/4 \int Tr(F_{\mu\nu} F^{\mu\nu}) d^4x
+            F_{\mu\nu} = \partial_\mu A_\nu - \partial_\nu A_\mu - ig [A_\mu, A_\nu]
+            E = mc^2, \quad \sqrt{x^2 + y^2} = r
+        "#;
+        let extracted = MediaResolver::extract_media_from_text(math_text);
+        assert!(
+            extracted.is_empty(),
+            "Expected 0 media clips from equations, but found: {:?}",
+            extracted
+        );
+    }
+}
+
+

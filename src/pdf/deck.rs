@@ -119,6 +119,11 @@ impl Slide {
     pub fn find_link_at(&self, x: f32, y: f32, padding: f32) -> Option<&PdfLinkInfo> {
         self.links.iter().find(|link| link.contains(x, y, padding))
     }
+
+    /// Find the index of a media clip under the given normalized coordinate (x, y).
+    pub fn find_media_clip_at(&self, x: f32, y: f32, tolerance: f32) -> Option<usize> {
+        self.media_clips.iter().position(|clip| clip.contains_point(x, y, tolerance))
+    }
 }
 
 pub struct PresentationDeck {

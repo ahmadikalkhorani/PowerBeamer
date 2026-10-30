@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 610 460" role="img" aria-labelledby="title desc">
+  <title id="title">Presenter app icon</title>
+  <desc id="desc">A white rounded square tile with a layered blue play symbol and white letter P.</desc>
+  <rect x="5" y="8" width="600" height="444" rx="31" fill="#fff" stroke="#20242b" stroke-width="1"/>
+
+  <!-- The broad play silhouette. -->
+  <path d="M144 149c2-29 23-51 51-51 15 0 25 4 38 12l199 115c17 10 26 25 26 43 0 19-9 35-26 45L239 424c-14 8-25 6-36 5-34-5-59-29-59-61v-9h28v-53h47c49 0 67-27 67-77 0-50-27-79-74-79h-68Z" fill="#0d89ed"/>
+
+  <!-- Facets give the mark its folded, projected depth. -->
+  <path d="m250 122 181 104c10 6 18 15 22 26L304 335c2-7 3-15 3-23 0-46-18-78-54-96l57-32 3-34Z" fill="#0868ee"/>
+  <path d="m191 325 113-65c-4 13-8 27-8 43 0 38-16 65-50 76h-55Z" fill="#0649d4" opacity=".72"/>
+  <path d="M191 198h20c47 0 74 26 74 74 0 1 0 3-.1 4l-94 49Z" fill="#0753dd"/>
+
+  <!-- White P cut over the play mark. -->
+  <path fill="#fff" fill-rule="evenodd" d="M144 150h68c49 0 74 28 74 78 0 50-18 78-67 78h-47v53h-28v-101h28v-60h39c15 0 22 10 22 30 0 20-7 30-22 30h-39v-60h-28Zm28 48v60h39c15 0 22-10 22-30 0-20-7-30-22-30Z"/>
+</svg>

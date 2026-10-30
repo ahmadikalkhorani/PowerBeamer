@@ -12,7 +12,7 @@ use crate::*;
 
 /// Wires canvas input and its animation timers.
 pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
-    let AppContext { state, presenter_window, audience_window, update_ink_overlay, update_slide_view, .. } = ctx;
+    let AppContext { state, presenter_window, audience_window, update_ink_overlay, update_slide_view, video_player, .. } = ctx;
 
     // --- LASER TRAIL DECAY TIMER (16ms / 60 FPS) ---
     let laser_decay_timer = slint::Timer::default();
@@ -166,6 +166,9 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
             st.link_press_start = if hit_link.is_some() { Some(std::time::Instant::now()) } else { None };
             st.link_triggered = false;
 
+            // Detect media clip under pointer on pointer down (tolerance 0.015)
+            st.active_media_target = st.deck.current_slide().find_media_clip_at(x, y, 0.015);
+
             if let Some(ref link) = hit_link {
                 if let Some(p) = presenter_handle.upgrade() {
                     p.set_link_holding(true);
@@ -284,24 +287,39 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
 
             if !st.pointer_is_down {
                 let hover_link = st.deck.current_slide().find_link_at(x, y, 0.015);
+                let hover_media = st.deck.current_slide().find_media_clip_at(x, y, 0.015);
                 if let Some(p) = presenter_handle.upgrade() {
                     if let Some(link) = hover_link {
                         p.set_hovered_on_link(true);
                         let hint = if st.current_tool == ActiveTool::Laser { "Click to open" } else { "Touch & hold to open" };
                         p.set_hovered_link_tooltip(slint::SharedString::from(format!("{} ({})", link.tooltip, hint)));
+                    } else if let Some(clip_idx) = hover_media {
+                        p.set_hovered_on_link(true);
+                        let clip = &st.deck.current_slide().media_clips[clip_idx];
+                        let media_type = if clip.is_audio() { "Audio" } else { "Video" };
+                        let active_tag = if clip_idx == st.active_clip_index() { " [Active]" } else { "" };
+                        p.set_hovered_link_tooltip(slint::SharedString::from(format!("Click to select {} #{}: {}{}", media_type, clip_idx + 1, clip.display_path, active_tag)));
                     } else {
                         p.set_hovered_on_link(false);
                         p.set_hovered_link_tooltip(slint::SharedString::new());
                     }
                 }
-            } else if st.active_link_target.is_some() {
-                let dist = ((x - st.hold_anchor_pos.0).powi(2) + (y - st.hold_anchor_pos.1).powi(2)).sqrt();
-                if dist > 0.02 {
-                    st.active_link_target = None;
-                    st.link_press_start = None;
-                    if let Some(p) = presenter_handle.upgrade() {
-                        p.set_link_holding(false);
-                        p.set_link_hold_progress(0.0);
+            } else {
+                if st.active_link_target.is_some() {
+                    let dist = ((x - st.hold_anchor_pos.0).powi(2) + (y - st.hold_anchor_pos.1).powi(2)).sqrt();
+                    if dist > 0.02 {
+                        st.active_link_target = None;
+                        st.link_press_start = None;
+                        if let Some(p) = presenter_handle.upgrade() {
+                            p.set_link_holding(false);
+                            p.set_link_hold_progress(0.0);
+                        }
+                    }
+                }
+                if st.active_media_target.is_some() {
+                    let dist = ((x - st.hold_anchor_pos.0).powi(2) + (y - st.hold_anchor_pos.1).powi(2)).sqrt();
+                    if dist > 0.02 {
+                        st.active_media_target = None;
                     }
                 }
             }
@@ -441,6 +459,7 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
         let update_view = update_slide_view.clone();
         let presenter_handle = presenter_window.as_weak();
         let audience_handle = audience_window.as_weak();
+        let video_player = video_player.clone();
 
         presenter_window.on_canvas_pointer_up(move || {
             let mut st = state.borrow_mut();
@@ -470,6 +489,18 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                             PdfLinkTarget::Page(dest_idx) => {
                                 println!("Clicked PDF destination: jump to slide {}", dest_idx + 1);
                                 if st.deck.jump_to(dest_idx) {
+                                    if st.current_tool == ActiveTool::Laser {
+                                        st.laser_active = false;
+                                        if let Some(trail) = st.laser_trail.as_mut() {
+                                            trail.end_stroke();
+                                        }
+                                        if let Some(p) = presenter_handle.upgrade() {
+                                            p.set_laser_active(false);
+                                        }
+                                        if let Some(aud) = audience_handle.upgrade() {
+                                            aud.set_laser_visible(false);
+                                        }
+                                    }
                                     drop(st);
                                     update_view();
                                     update_ink();
@@ -481,6 +512,51 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                 }
             }
             st.active_link_target = None;
+
+            // Check if pointer up clicked/tapped on a media clip to select it
+            if let Some(target_idx) = st.active_media_target.take() {
+                let elapsed_ms = st.last_pointer_move_time.elapsed().as_millis() as u64;
+                let is_click = elapsed_ms < 400;
+                let is_click_or_laser = is_click || st.current_tool == ActiveTool::Laser;
+                if is_click_or_laser {
+                    let slide_idx = st.deck.current_index;
+                    let count = st.deck.current_slide().media_clips.len();
+                    if target_idx < count {
+                        st.active_stroke = None;
+                        st.raw_stroke_backup.clear();
+                        let changed = st.active_clip_index() != target_idx;
+                        st.active_media_clip = (slide_idx, target_idx);
+                        if st.current_tool == ActiveTool::Laser {
+                            st.laser_active = false;
+                            if let Some(trail) = st.laser_trail.as_mut() {
+                                trail.end_stroke();
+                            }
+                            if let Some(p) = presenter_handle.upgrade() {
+                                p.set_laser_active(false);
+                            }
+                            if let Some(aud) = audience_handle.upgrade() {
+                                aud.set_laser_visible(false);
+                            }
+                        }
+                        if changed {
+                            st.media_playing = false;
+                            st.media_current_time_secs = 0.0;
+                            st.media_progress = 0.0;
+                            println!(
+                                "Selected media clip #{} on slide {}: {}",
+                                target_idx + 1,
+                                slide_idx + 1,
+                                st.deck.current_slide().media_clips[target_idx].display_path
+                            );
+                            drop(st);
+                            lock(&video_player).stop();
+                            update_view();
+                            update_ink();
+                            return;
+                        }
+                    }
+                }
+            }
 
             let elapsed_ms = st.last_pointer_move_time.elapsed().as_millis() as u64;
             let should_snap = !st.is_shape_snapped && st.auto_shape_enabled && elapsed_ms >= st.hold_delay_ms;

@@ -4,7 +4,7 @@
 
 <h1 align="center">PowerBeamer</h1>
 
-<p align="center"><strong>The fast, ink-first presenter for LaTeX Beamer PDFs.</strong></p>
+<p align="center"><strong>The fast, ink-first presenter for LaTeX Beamer PDFs and PowerPoint presentations.</strong></p>
 
 <p align="center">
 
@@ -12,7 +12,7 @@
 
 </p>
 
-A high-performance, low-footprint desktop presentation studio purpose-built for **LaTeX Beamer PDF presentations**. Engineered in **Rust** with **Slint / WGPU** and **Google PDFium** for instant sub-millisecond slide transitions, fluid vector inking, native Beamer dual-screen auto-detection, speaker notes extraction, and modular multi-window docking.
+A high-performance, low-footprint desktop presentation studio purpose-built for **LaTeX Beamer PDFs** and **PowerPoint presentations (`.pptx`, `.ppt`, `.odp`)**. Engineered in **Rust** with **Slint / WGPU** and **Google PDFium** for instant sub-millisecond slide transitions, fluid vector inking, native Beamer dual-screen auto-detection, speaker notes extraction, embedded audio/video playback, and modular multi-window docking.
 
 ---
 
@@ -102,6 +102,14 @@ Most PDF presenters treat a Beamer deck as a pile of pages. PowerBeamer understa
 - **Speaker notes and comments** in a resizable panel, or in a detached window.
 - **Multimedia**: `\movie` and `\includemedia` video and audio play inline (`M` to toggle).
 
+### 📊 PowerPoint & OpenDocument (`.pptx`, `.ppt`, `.odp`)
+- **Direct file opening**: open `.pptx` decks directly via File Dialog or CLI (`powerbeamer presentation.pptx`).
+- **Cross-platform headless engine**: natively converts slides using Microsoft PowerPoint (macOS AppleScript / Windows COM) or headless LibreOffice (`soffice`), with zero permission popups or manual steps.
+- **OpenXML extraction**: automatically unpacks speaker notes from `notesSlide*.xml`, slide titles, section hierarchical TOCs, and embedded media.
+- **Embedded Audio & Video**: extracts embedded audio/video clips (`.mp3`, `.wav`, `.m4a`, `.mp4`, `.mov`, etc.), preserving exact slide positions and bounding boxes.
+- **Click-to-play media selection**: click directly on any audio icon or video bounding box on the presenter slide to switch and control playback.
+- **Fast local caching**: saves conversion artifacts in `.cache/powerbeamer/` right in your presentation directory so future openings are instant (< 50 ms).
+
 ### 🎨 Live Annotation
 - **✍️ Pen (`P`)**: pressure-sensitive vector ink with Catmull-Rom smoothing and under 10 ms latency.
 - **📐 Auto-shapes**: draw and hold to snap rough strokes into clean lines, arrows, rectangles and diamonds.
@@ -163,6 +171,9 @@ cargo run
 
 # Run with your own LaTeX Beamer PDF
 cargo run -- /path/to/my_presentation.pdf
+
+# Run with a PowerPoint presentation (.pptx)
+cargo run -- /path/to/my_presentation.pptx
 ```
 
 ### Build Optimized Release Binary & macOS App

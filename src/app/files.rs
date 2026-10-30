@@ -124,8 +124,10 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
         let presenter_handle = presenter_window.as_weak();
         presenter_window.on_open_pdf(move || {
             let picked = rfd::FileDialog::new()
+                .add_filter("All Supported Presentations", &["pdf", "pptx", "ppt", "odp"])
                 .add_filter("PDF Presentations", &["pdf"])
-                .set_title("Open Beamer LaTeX PDF Presentation")
+                .add_filter("PowerPoint Presentations", &["pptx", "ppt", "odp"])
+                .set_title("Open Presentation (PDF or PowerPoint)")
                 .pick_file();
 
             if let Some(path) = picked {

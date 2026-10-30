@@ -160,6 +160,9 @@ pub(crate) struct AppState {
     pub(crate) link_press_start: Option<std::time::Instant>,
     pub(crate) link_triggered: bool,
 
+    // Media clip target clicked
+    pub(crate) active_media_target: Option<usize>,
+
     // Presentation Mode & Display Swapping
     pub(crate) blank_mode: i32, // 0: Normal, 1: Blackout, 2: Whiteout
     pub(crate) is_screen_swapped: bool,
@@ -338,7 +341,12 @@ impl AppState {
         let quality = self.deck.quality;
         let worker_path = path.clone();
         std::thread::spawn(move || {
-            let _ = tx.send(pdf::PdfiumLoader::load_deck_from_file(&worker_path, quality));
+            let res = if pdf::PptxEngine::is_pptx(&worker_path) {
+                pdf::PptxEngine::load_deck_from_pptx(&worker_path, quality)
+            } else {
+                pdf::PdfiumLoader::load_deck_from_file(&worker_path, quality)
+            };
+            let _ = tx.send(res);
         });
         self.deck_load = Some(DeckLoadJob { rx, path, kind });
     }
@@ -503,6 +511,7 @@ impl AppState {
             active_link_target: None,
             link_press_start: None,
             link_triggered: false,
+            active_media_target: None,
 
             zoom_level: 1.0,
             zoom_pan_x: 0.0,

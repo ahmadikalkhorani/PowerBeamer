@@ -37,6 +37,25 @@ impl MediaClip {
             is_resolved: true,
         }
     }
+
+    pub fn is_audio(&self) -> bool {
+        self.mime_type.starts_with("audio/")
+            || self.file_path.ends_with(".mp3")
+            || self.file_path.ends_with(".wav")
+            || self.file_path.ends_with(".ogg")
+            || self.file_path.ends_with(".flac")
+            || self.file_path.ends_with(".m4a")
+            || self.file_path.ends_with(".aac")
+    }
+
+    /// Check if a normalized point (x, y) falls inside or near the bounding box of this clip.
+    pub fn contains_point(&self, x: f32, y: f32, tolerance: f32) -> bool {
+        let rx = self.rect[0] - tolerance;
+        let ry = self.rect[1] - tolerance;
+        let rw = self.rect[2] + tolerance * 2.0;
+        let rh = self.rect[3] + tolerance * 2.0;
+        x >= rx && x <= (rx + rw) && y >= ry && y <= (ry + rh)
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
