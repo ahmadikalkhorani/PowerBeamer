@@ -42,6 +42,9 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
         presenter_window.on_prev_slide(move || {
             let mut st = state.borrow_mut();
             if st.is_end_of_show {
+                if !st.deck.last_slide() {
+                    return;
+                }
                 st.is_end_of_show = false;
                 st.blank_mode = 0;
                 st.zoom_level = 1.0;
@@ -99,6 +102,9 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
         presenter_window.on_prev_frame(move || {
             let mut st = state.borrow_mut();
             if st.is_end_of_show {
+                if !st.deck.last_slide() {
+                    return;
+                }
                 st.is_end_of_show = false;
                 st.blank_mode = 0;
                 st.zoom_level = 1.0;

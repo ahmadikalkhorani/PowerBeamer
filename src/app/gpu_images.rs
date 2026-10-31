@@ -102,6 +102,7 @@ pub(crate) fn update_slide_thumbnails_model(deck: &PresentationDeck, presenter: 
         .iter()
         .enumerate()
         .map(|(i, slide)| SlideThumbnail {
+            is_hidden: slide.is_hidden,
             index: (i + 1) as i32,
             image: slide_thumbnail_image(slide),
         })

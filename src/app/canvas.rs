@@ -96,6 +96,14 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                                 }
 
                                 match link.target {
+                                    PdfLinkTarget::EndShow => {
+                                        st.is_end_of_show = true;
+                                        st.blank_mode = 1;
+                                        drop(st);
+                                        update_view();
+                                        update_ink();
+                                        return;
+                                    }
                                     PdfLinkTarget::Url(url) => {
                                         println!("Touch & Hold triggered PDF link: {}", url);
                                         open_external_url(&url);
@@ -109,6 +117,8 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                                             dest_idx + 1
                                         );
                                         if st.deck.jump_to(dest_idx) {
+                                            st.is_end_of_show = false;
+                                            st.blank_mode = 0;
                                             drop(st);
                                             update_view();
                                             update_ink();
@@ -597,6 +607,14 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                         st.link_triggered = true;
 
                         match link.target {
+                            PdfLinkTarget::EndShow => {
+                                st.is_end_of_show = true;
+                                st.blank_mode = 1;
+                                drop(st);
+                                update_view();
+                                update_ink();
+                                return;
+                            }
                             PdfLinkTarget::Url(url) => {
                                 println!("Clicked PDF link: {}", url);
                                 open_external_url(&url);
@@ -604,6 +622,8 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                             PdfLinkTarget::Page(dest_idx) => {
                                 println!("Clicked PDF destination: jump to slide {}", dest_idx + 1);
                                 if st.deck.jump_to(dest_idx) {
+                                    st.is_end_of_show = false;
+                                    st.blank_mode = 0;
                                     if st.current_tool == ActiveTool::Laser {
                                         st.laser_active = false;
                                         if let Some(trail) = st.laser_trail.as_mut() {

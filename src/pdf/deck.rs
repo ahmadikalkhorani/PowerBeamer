@@ -53,6 +53,7 @@ pub struct TocEntry {
 pub enum PdfLinkTarget {
     Url(String),
     Page(usize), // 0-indexed slide index in deck
+    EndShow,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -101,6 +102,8 @@ pub struct Slide {
     pub title: String,
     pub notes: String,
     pub is_whiteboard: bool,
+    /// Skip during sequential navigation; explicit jumps can still open this slide.
+    pub is_hidden: bool,
     pub is_dual_screen: bool,
     pub aspect_ratio: f32,
     pub media_clips: Vec<MediaClip>,
@@ -131,6 +134,7 @@ impl Slide {
             title: self.title.clone(),
             notes: self.notes.clone(),
             is_whiteboard: self.is_whiteboard,
+            is_hidden: self.is_hidden,
             is_dual_screen: self.is_dual_screen,
             aspect_ratio: self.aspect_ratio,
             media_clips: self.media_clips.clone(),
@@ -202,22 +206,20 @@ impl PresentationDeck {
         self.slides.len()
     }
 
+    pub fn next_visible_index(&self) -> Option<usize> {
+        (self.current_index + 1..self.slides.len()).find(|&i| !self.slides[i].is_hidden)
+    }
+
     pub fn next(&mut self) -> bool {
-        if self.current_index + 1 < self.slides.len() {
-            self.current_index += 1;
-            true
-        } else {
-            false
-        }
+        self.next_visible_index()
+            .is_some_and(|index| self.jump_to(index))
     }
 
     pub fn prev(&mut self) -> bool {
-        if self.current_index > 0 {
-            self.current_index -= 1;
-            true
-        } else {
-            false
-        }
+        (0..self.current_index)
+            .rev()
+            .find(|&i| !self.slides[i].is_hidden)
+            .is_some_and(|index| self.jump_to(index))
     }
 
     pub fn jump_to(&mut self, index: usize) -> bool {
@@ -238,15 +240,17 @@ impl PresentationDeck {
     }
 
     pub fn first_slide(&mut self) -> bool {
-        self.jump_to(0)
+        self.slides
+            .iter()
+            .position(|slide| !slide.is_hidden)
+            .is_some_and(|index| self.jump_to(index))
     }
 
     pub fn last_slide(&mut self) -> bool {
-        if !self.slides.is_empty() {
-            self.jump_to(self.slides.len() - 1)
-        } else {
-            false
-        }
+        self.slides
+            .iter()
+            .rposition(|slide| !slide.is_hidden)
+            .is_some_and(|index| self.jump_to(index))
     }
 
     pub fn delete_slide(&mut self, idx: usize) -> bool {
@@ -273,7 +277,7 @@ impl PresentationDeck {
         if let Some(target_idx) = self
             .slides
             .iter()
-            .position(|s| s.frame_index > current_frame)
+            .position(|s| s.frame_index > current_frame && !s.is_hidden)
         {
             self.current_index = target_idx;
             true
@@ -292,11 +296,19 @@ impl PresentationDeck {
         if current_frame <= 1 {
             return false;
         }
-        let target_frame = current_frame - 1;
+        let Some(target_frame) = self
+            .slides
+            .iter()
+            .rev()
+            .find(|s| s.frame_index < current_frame && !s.is_hidden)
+            .map(|s| s.frame_index)
+        else {
+            return false;
+        };
         if let Some(target_idx) = self
             .slides
             .iter()
-            .position(|s| s.frame_index == target_frame)
+            .position(|s| s.frame_index == target_frame && !s.is_hidden)
         {
             self.current_index = target_idx;
             true
@@ -508,6 +520,7 @@ impl PresentationDeck {
             title,
             notes: "Inserted template note page.".to_string(),
             is_whiteboard: true,
+            is_hidden: false,
             is_dual_screen: false,
             aspect_ratio,
             media_clips: Vec::new(),
@@ -688,6 +701,7 @@ impl PresentationDeck {
             title: "Title: Quantum Field Theory".to_string(),
             notes: "BEAMER NOTES (Slide 1):\n• Welcome attendees and students.\n• Mention that this presentation is rendered in 600 DPI vector quality.\n• Explain that pen and highlighter tools are available on the left toolbar.\n• Press 'L' at any time to point with the laser.".to_string(),
             is_whiteboard: false,
+            is_hidden: false,
             is_dual_screen: false,
             aspect_ratio: 16.0 / 9.0,
             media_clips: Vec::new(),
@@ -728,6 +742,7 @@ impl PresentationDeck {
             title: "Yang-Mills Field Theory".to_string(),
             notes: "BEAMER NOTES (Slide 2):\n• Caution students regarding index contraction conventions (Minkowski metric +---).\n• Highlight BRST symmetry transformation.\n• Insert a whiteboard page with '+' if students ask for the explicit ghost matrix algebra.".to_string(),
             is_whiteboard: false,
+            is_hidden: false,
             is_dual_screen: false,
             aspect_ratio: 16.0 / 9.0,
             media_clips: Vec::new(),
@@ -784,6 +799,7 @@ impl PresentationDeck {
             title: "Beamer pgfpages Dual-Screen".to_string(),
             notes: "LaTeX BEAMER SECOND SCREEN (Auto-Split from pgfpages):\n• This slide was detected as an ultra-wide double-screen layout!\n• The audience display receives ONLY the left half.\n• Your presenter screen sees this full note breakdown seamlessly.".to_string(),
             is_whiteboard: false,
+            is_hidden: false,
             is_dual_screen: true,
             aspect_ratio: 16.0 / 9.0,
             media_clips: Vec::new(),
@@ -821,6 +837,7 @@ impl PresentationDeck {
             title: "Multimedia Simulation".to_string(),
             notes: "BEAMER NOTES (Slide 4):\n• Video clip: simulation of non-linear wave turbulence.\n• Pause at 0:15 to highlight soliton collision.\n• Use yellow highlighter to trace wave envelope.".to_string(),
             is_whiteboard: false,
+            is_hidden: false,
             is_dual_screen: false,
             aspect_ratio: 16.0 / 9.0,
             media_clips: vec![MediaClip {

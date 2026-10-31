@@ -66,6 +66,7 @@ fn headless_overview_and_activity_timers() {
         Rc::new(slint::VecModel::from(
             (1..=10000)
                 .map(|i| SlideThumbnail {
+                    is_hidden: false,
                     index: i,
                     image: shared_thumb.clone(),
                 })
@@ -236,6 +237,7 @@ fn headless_overview_and_activity_timers() {
     slint::platform::update_timers_and_animations();
     assert_eq!(*draws.borrow(), 1);
     check_controls(&context);
+    check_hidden_slide_navigation_and_actions(&context);
     // Exercise the real asynchronous open path, not just metadata parsing. A
     // converted companion avoids automating the user's running Office session.
     let _files = super::files::wire(&context);
@@ -247,7 +249,7 @@ fn headless_overview_and_activity_timers() {
         use pdfium_render::prelude::*;
         let pdfium = crate::pdf::PdfiumLoader::get_pdfium().unwrap();
         let mut converted = pdfium.create_new_pdf().unwrap();
-        for _ in 0..3 {
+        for _ in 0..1 {
             converted
                 .pages_mut()
                 .create_page_at_end(PdfPagePaperSize::Custom(
@@ -295,19 +297,56 @@ fn headless_overview_and_activity_timers() {
         std::thread::sleep(Duration::from_millis(1));
     }
     assert_eq!(state.borrow().deck.file_path.as_ref(), Some(&pptx));
-    assert_eq!(state.borrow().deck.slides.len(), 3);
+    assert_eq!(state.borrow().deck.slides.len(), 1);
     assert_eq!(
         state.borrow().deck.slides[0].title,
         "Quantum Computing Overview"
     );
     assert!(!presenter.get_deck_loading());
-    assert_eq!(presenter.get_total_slides(), 3);
+    assert_eq!(presenter.get_total_slides(), 1);
     let size = presenter.get_current_slide_image().size();
     // PDFium uses floating-point page widths; the existing DPI conversion can
     // truncate 3999.999... to 3999. Both widths are full-resolution, not a thumbnail.
     assert!((3999..=4000).contains(&size.width));
     assert_eq!(size.height, 2250);
     presenter.hide().unwrap();
+}
+
+fn check_hidden_slide_navigation_and_actions(ctx: &super::context::AppContext) {
+    use crate::pdf::{PdfLinkInfo, PdfLinkTarget};
+    let _navigation = super::navigation::wire(ctx);
+    let p = &ctx.presenter_window;
+    {
+        let mut st = ctx.state.borrow_mut();
+        st.deck.slides.truncate(3);
+        st.deck.current_index = 0;
+        st.deck.slides[1].is_hidden = true;
+        st.is_end_of_show = false;
+        st.blank_mode = 0;
+        st.current_tool = crate::ActiveTool::Pen;
+        st.zoom_level = 1.0;
+        st.zoom_pan_x = 0.0;
+        st.zoom_pan_y = 0.0;
+        st.deck.slides[0].links = vec![PdfLinkInfo::new_page([0.1, 0.1, 0.2, 0.2], 1)];
+        st.deck.slides[1].links = vec![PdfLinkInfo {
+            rect: [0.1, 0.1, 0.2, 0.2], target: PdfLinkTarget::EndShow, tooltip: "End show".into(),
+        }];
+    }
+    p.invoke_next_slide();
+    assert_eq!(ctx.state.borrow().deck.current_index, 2);
+    p.invoke_prev_slide();
+    assert_eq!(ctx.state.borrow().deck.current_index, 0);
+    p.invoke_canvas_pointer_down(0.2, 0.2, 1.0);
+    p.invoke_canvas_pointer_up();
+    assert_eq!(ctx.state.borrow().deck.current_index, 1);
+    p.invoke_canvas_pointer_down(0.2, 0.2, 1.0);
+    p.invoke_canvas_pointer_up();
+    assert!(ctx.state.borrow().is_end_of_show);
+    assert_eq!(ctx.state.borrow().blank_mode, 1);
+    p.invoke_prev_slide();
+    assert_eq!(ctx.state.borrow().deck.current_index, 2);
+    assert!(!ctx.state.borrow().is_end_of_show);
+    assert_eq!(ctx.state.borrow().blank_mode, 0);
 }
 
 fn check_controls(ctx: &super::context::AppContext) {

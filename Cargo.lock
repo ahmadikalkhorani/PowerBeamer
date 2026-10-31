@@ -3570,6 +3570,7 @@ dependencies = [
  "memmap2",
  "pdfium-render",
  "rfd",
+ "roxmltree",
  "serde",
  "serde_json",
  "slint",

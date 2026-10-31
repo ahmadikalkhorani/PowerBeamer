@@ -2105,6 +2105,7 @@ mod tests {
                 title: format!("Slide {}", page),
                 notes: String::new(),
                 is_whiteboard: false,
+                is_hidden: false,
                 is_dual_screen: false,
                 aspect_ratio: 1.7778,
                 media_clips: Vec::new(),

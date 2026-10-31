@@ -105,7 +105,9 @@ Most PDF presenters treat a Beamer deck as a pile of pages. PowerBeamer understa
 ### 📊 PowerPoint & OpenDocument (`.pptx`, `.ppt`, `.odp`)
 - **Direct file opening**: open `.pptx` decks directly via File Dialog or CLI (`powerbeamer presentation.pptx`).
 - **Cross-platform headless engine**: natively converts slides using Microsoft PowerPoint (macOS AppleScript / Windows COM) or headless LibreOffice (`soffice`), with zero permission popups or manual steps.
-- **OpenXML extraction**: automatically unpacks speaker notes from `notesSlide*.xml`, slide titles, section hierarchical TOCs, and embedded media.
+- **OpenXML extraction**: reads speaker notes, slide titles, named sections for the TOC, and embedded media using the presentation's slide order and relationships.
+- **Hidden PPTX slides**: skipped by next/previous and frame navigation, with a “Hidden” badge in the overview. Direct TOC, thumbnail, and slide-link jumps can still open them. Generated PDF conversions include every slide; companion PDFs must also include hidden slides.
+- **PPTX hyperlinks and action buttons**: web/email links, direct slide jumps, next/previous/first/last slide, and end-show actions work through the existing click/hold link controls. Group transforms are applied to button hit areas. Precise text-link areas use links retained in the converted PDF; ambiguous text boxes with several different links require those PDF link areas. Macro, program-launch, custom-show, and last-viewed-slide actions are not supported.
 - **Embedded Audio & Video**: extracts embedded audio/video clips (`.mp3`, `.wav`, `.m4a`, `.mp4`, `.mov`, etc.), preserving exact slide positions and bounding boxes.
 - **Click-to-play media selection**: click directly on any audio icon or video bounding box on the presenter slide to switch and control playback.
 - **Fast local caching**: saves conversion artifacts in `.cache/powerbeamer/` right in your presentation directory so future openings are instant (< 50 ms).

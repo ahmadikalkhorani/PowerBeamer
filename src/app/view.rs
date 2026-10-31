@@ -378,8 +378,8 @@ pub(crate) fn build_slide_view(
                 None
             };
 
-            let next_img = if current_idx + 1 < total {
-                slide_presenter_image(&st.deck.slides[current_idx + 1])
+            let next_img = if let Some(next_index) = st.deck.next_visible_index() {
+                slide_presenter_image(&st.deck.slides[next_index])
             } else {
                 end_of_deck_image()
             };

@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use zip::ZipArchive;
 
 use super::beamer::MediaClip;
-use super::deck::{RenderQuality, Slide, TocEntry};
+use super::deck::{PdfLinkInfo, PdfLinkTarget, RenderQuality, Slide, TocEntry};
 use super::pdfium_loader::PdfiumLoader;
 
 /// Represents metadata extracted directly from the .pptx OpenXML structure.
@@ -20,8 +20,18 @@ pub struct PptxMetadata {
     pub slide_media: HashMap<usize, Vec<MediaClip>>,
     /// Hierarchical sections or top-level TOC outline
     pub sections: Vec<TocEntry>,
+    pub hidden_slides: std::collections::HashSet<usize>,
+    pub slide_links: HashMap<usize, Vec<PdfLinkInfo>>,
+    pub slide_count: usize,
     /// Slide width and height in EMUs (1 cm = 360,000 EMU)
     pub slide_size_emu: Option<(u64, u64)>,
+}
+
+#[derive(Debug)]
+struct PptxRelationship {
+    target: String,
+    kind: String,
+    external: bool,
 }
 
 pub struct PptxEngine;
@@ -77,8 +87,27 @@ impl PptxEngine {
         let (mut slides, mut toc) =
             PdfiumLoader::load_deck_cancellable(&pdf_path, quality, cancelled)?;
 
+        // Companion PDFs must contain every slide to preserve PPTX destinations.
+        if metadata.slide_count > 0 && slides.len() != metadata.slide_count {
+            return Err(format!(
+                "The PDF has {} pages but the PowerPoint has {} slides. Export the companion PDF with hidden slides included, or remove the companion PDF and cached conversion so PowerBeamer can regenerate it.",
+                slides.len(),
+                metadata.slide_count
+            ));
+        }
+
         // 4. Augment slides with PPTX notes, titles, and media
+        let slide_count = slides.len();
         for slide in &mut slides {
+            slide.links.retain(|link| match &link.target {
+                PdfLinkTarget::Url(url) => Self::is_web_or_email_link(url),
+                PdfLinkTarget::Page(index) => *index < slide_count,
+                PdfLinkTarget::EndShow => true,
+            });
+            slide.is_hidden = metadata.hidden_slides.contains(&slide.page_index);
+            if let Some(links) = metadata.slide_links.get(&slide.page_index) {
+                Self::merge_slide_links(&mut slide.links, links);
+            }
             // Apply extracted speaker notes if PDF notes were empty or generic
             if let Some(note) = metadata.slide_notes.get(&slide.page_index) {
                 if !note.trim().is_empty() {
@@ -102,25 +131,24 @@ impl PptxEngine {
             }
         }
 
-        // 5. Enhance TOC with sections or titles if PDF outline was empty
-        if toc.is_empty() {
-            if !metadata.sections.is_empty() {
-                toc = metadata.sections;
-            } else if !metadata.slide_titles.is_empty() {
-                for slide in &slides {
-                    let title = if slide.title.is_empty() || slide.title.starts_with("Slide ") {
+        // The PDF loader always supplies a fallback outline, even without bookmarks.
+        // Native PowerPoint sections must take precedence over that generated outline.
+        if !metadata.sections.is_empty() {
+            toc = metadata.sections;
+        } else if !metadata.slide_titles.is_empty() {
+            toc = slides
+                .iter()
+                .map(|slide| TocEntry {
+                    title: if slide.title.is_empty() || slide.title.starts_with("Slide ") {
                         format!("Slide {}", slide.page_index)
                     } else {
                         slide.title.clone()
-                    };
-                    toc.push(TocEntry {
-                        title,
-                        page_index: slide.page_index,
-                        level: 0,
-                        frame_index: slide.frame_index,
-                    });
-                }
-            }
+                    },
+                    page_index: slide.page_index,
+                    level: 0,
+                    frame_index: slide.frame_index,
+                })
+                .collect();
         }
 
         Ok((slides, toc))
@@ -129,7 +157,7 @@ impl PptxEngine {
     /// Converts the presentation to PDF if necessary, or locates a pre-existing companion or cached PDF.
     pub fn ensure_pdf_available(pptx_path: &Path) -> Result<PathBuf, String> {
         let cache_dir = Self::get_pptx_cache_dir(pptx_path)?;
-        let cached_pdf = cache_dir.join("presentation.pdf");
+        let cached_pdf = cache_dir.join("presentation-all-slides.pdf");
         let companion_pdf = pptx_path.with_extension("pdf");
 
         // Priority 1: Check for an up-to-date cached PDF in .cache/powerbeamer/<stem>/
@@ -160,12 +188,20 @@ impl PptxEngine {
             }
         }
 
+        // Export a temporary visible copy so all renderers include hidden slides.
+        // The original archive and its hidden flags remain unchanged.
+        let export_copy = Self::visible_export_copy(pptx_path)?;
+        let conversion_input = export_copy
+            .as_ref()
+            .map(|(_, path)| path.as_path())
+            .unwrap_or(pptx_path);
+
         // Attempt 1: Native Microsoft PowerPoint (macOS AppleScript / Windows COM)
         #[cfg(target_os = "macos")]
         {
             if Self::has_powerpoint_macos() {
                 println!("[PPTX Engine] Converting with Microsoft PowerPoint on macOS...");
-                match Self::convert_with_powerpoint_macos(pptx_path, &cached_pdf) {
+                match Self::convert_with_powerpoint_macos(conversion_input, &cached_pdf) {
                     Ok(path) => return Ok(path),
                     Err(e) => eprintln!(
                         "[PPTX Engine] PowerPoint conversion failed: {}. Falling back to LibreOffice...",
@@ -181,7 +217,9 @@ impl PptxEngine {
                 println!(
                     "[PPTX Engine] Converting with Microsoft PowerPoint on Windows (PowerShell/COM)..."
                 );
-                if let Ok(path) = Self::convert_with_powerpoint_windows(pptx_path, &cached_pdf) {
+                if let Ok(path) =
+                    Self::convert_with_powerpoint_windows(conversion_input, &cached_pdf)
+                {
                     return Ok(path);
                 }
             }
@@ -193,9 +231,12 @@ impl PptxEngine {
                 "[PPTX Engine] Converting with LibreOffice ({})...",
                 soffice_bin
             );
-            if let Ok(path) =
-                Self::convert_with_libreoffice(&soffice_bin, pptx_path, &cache_dir, &cached_pdf)
-            {
+            if let Ok(path) = Self::convert_with_libreoffice(
+                &soffice_bin,
+                conversion_input,
+                &cache_dir,
+                &cached_pdf,
+            ) {
                 return Ok(path);
             }
         }
@@ -414,12 +455,42 @@ impl PptxEngine {
         let cache_media_dir = Self::get_pptx_cache_dir(pptx_path)?.join("media");
         let _ = std::fs::create_dir_all(&cache_media_dir);
 
-        // 1. Read presentation.xml for slide dimensions & sections
-        if let Ok(mut pres_file) = archive.by_name("ppt/presentation.xml") {
-            let mut pres_xml = String::new();
-            if pres_file.read_to_string(&mut pres_xml).is_ok() {
-                meta.slide_size_emu = Self::extract_slide_size(&pres_xml);
-                meta.sections = Self::extract_sections(&pres_xml);
+        // Follow presentation relationships: slide filenames do not define display order.
+        let pres_xml = Self::read_part(&mut archive, "ppt/presentation.xml").unwrap_or_default();
+        meta.slide_size_emu = Self::extract_slide_size(&pres_xml);
+        meta.sections = Self::extract_sections(&pres_xml);
+        let pres_rels = Self::read_part(&mut archive, "ppt/_rels/presentation.xml.rels")
+            .map(|xml| Self::relationships(&xml))
+            .unwrap_or_default();
+        let slide_parts: Vec<String> = roxmltree::Document::parse(&pres_xml)
+            .ok()
+            .map(|doc| {
+                doc.root_element()
+                    .children()
+                    .find(|node| node.has_tag_name((Self::P, "sldIdLst")))
+                    .into_iter()
+                    .flat_map(|list| list.children())
+                    .filter(|node| node.has_tag_name((Self::P, "sldId")))
+                    .filter_map(|node| pres_rels.get(node.attribute((Self::R, "id"))?))
+                    .filter(|rel| !rel.external)
+                    .map(|rel| Self::resolve_part("ppt/presentation.xml", &rel.target))
+                    .collect()
+            })
+            .unwrap_or_default();
+        meta.slide_count = slide_parts.len();
+        let part_positions: HashMap<_, _> = slide_parts
+            .iter()
+            .enumerate()
+            .map(|(index, part)| (part.clone(), index))
+            .collect();
+        // Scan flags before resolving next/previous action buttons.
+        for (index, part) in slide_parts.iter().enumerate() {
+            if let Some(xml) = Self::read_part(&mut archive, part) {
+                if roxmltree::Document::parse(&xml).ok().is_some_and(|doc| {
+                    matches!(doc.root_element().attribute("show"), Some("0" | "false"))
+                }) {
+                    meta.hidden_slides.insert(index + 1);
+                }
             }
         }
 
@@ -463,43 +534,51 @@ impl PptxEngine {
         // 3. Parse individual slides (titles, bounding boxes for media, rels)
         let (slide_width_emu, slide_height_emu) =
             meta.slide_size_emu.unwrap_or((12192000, 6858000));
-        let mut slide_idx = 1;
-        loop {
-            let slide_xml_opt = {
-                if let Ok(mut slide_file) =
-                    archive.by_name(&format!("ppt/slides/slide{}.xml", slide_idx))
-                {
-                    let mut s = String::new();
-                    let _ = slide_file.read_to_string(&mut s);
-                    Some(s)
-                } else {
-                    None
-                }
+        for (index, slide_part) in slide_parts.iter().enumerate() {
+            let slide_idx = index + 1;
+            let Some(slide_xml) = Self::read_part(&mut archive, slide_part) else {
+                continue;
             };
-
-            let Some(slide_xml) = slide_xml_opt else {
-                break;
-            };
-
             if let Some(title) = Self::extract_slide_title(&slide_xml) {
                 meta.slide_titles.insert(slide_idx, title);
             }
 
             // Check slide relationships for media links
-            let rels_xml_opt = {
-                if let Ok(mut rels_file) =
-                    archive.by_name(&format!("ppt/slides/_rels/slide{}.xml.rels", slide_idx))
+            let rels_xml_opt = Self::read_part(&mut archive, &Self::rels_part(slide_part));
+            {
+                // Relative navigation actions need no relationship file.
+                let relationships = rels_xml_opt
+                    .as_deref()
+                    .map(Self::relationships)
+                    .unwrap_or_default();
+                let r_map = relationships
+                    .iter()
+                    .map(|(id, rel)| (id.clone(), rel.target.clone()))
+                    .collect();
+                let links = Self::extract_slide_links(
+                    &slide_xml,
+                    slide_part,
+                    &relationships,
+                    &part_positions,
+                    index,
+                    &meta.hidden_slides,
+                    slide_width_emu,
+                    slide_height_emu,
+                );
+                meta.slide_links.insert(slide_idx, links);
+                for rel in relationships
+                    .values()
+                    .filter(|rel| !rel.external && rel.kind.ends_with("/notesSlide"))
                 {
-                    let mut s = String::new();
-                    let _ = rels_file.read_to_string(&mut s);
-                    Some(s)
-                } else {
-                    None
+                    if let Some(notes) =
+                        Self::read_part(&mut archive, &Self::resolve_part(slide_part, &rel.target))
+                    {
+                        let text = Self::extract_notes_text(&notes);
+                        if !text.is_empty() {
+                            meta.slide_notes.insert(slide_idx, text);
+                        }
+                    }
                 }
-            };
-
-            if let Some(rels_xml) = rels_xml_opt {
-                let r_map = Self::extract_relationship_map(&rels_xml);
                 let mut clips = Self::extract_slide_media_clips(
                     slide_idx,
                     &slide_xml,
@@ -523,27 +602,333 @@ impl PptxEngine {
                     meta.slide_media.insert(slide_idx, clips);
                 }
             }
-
-            slide_idx += 1;
-        }
-
-        // 4. Parse notes slides (`ppt/notesSlides/notesSlide{N}.xml`)
-        let mut note_idx = 1;
-        while let Ok(mut note_file) =
-            archive.by_name(&format!("ppt/notesSlides/notesSlide{}.xml", note_idx))
-        {
-            let mut note_xml = String::new();
-            if note_file.read_to_string(&mut note_xml).is_ok() {
-                let note_text = Self::extract_notes_text(&note_xml);
-                if !note_text.is_empty() {
-                    // Notes slides typically map 1:1 to slide indices
-                    meta.slide_notes.insert(note_idx, note_text);
-                }
-            }
-            note_idx += 1;
         }
 
         Ok(meta)
+    }
+
+    fn visible_export_copy(input: &Path) -> Result<Option<(tempfile::TempDir, PathBuf)>, String> {
+        if !input
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("pptx"))
+        {
+            return Ok(None);
+        }
+        let mut archive = ZipArchive::new(File::open(input).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+        let mut replacements = HashMap::new();
+        for index in 0..archive.len() {
+            let mut entry = archive.by_index(index).map_err(|e| e.to_string())?;
+            let name = entry.name().map_err(|e| e.to_string())?.to_string();
+            if !name.starts_with("ppt/slides/") || !name.ends_with(".xml") {
+                continue;
+            }
+            let mut xml = String::new();
+            entry.read_to_string(&mut xml).map_err(|e| e.to_string())?;
+            let range = roxmltree::Document::parse(&xml).ok().and_then(|doc| {
+                let root = doc.root_element();
+                root.attribute_node("show")
+                    .filter(|attr| matches!(attr.value(), "0" | "false"))
+                    .map(|attr| attr.range_value())
+            });
+            if let Some(range) = range {
+                xml.replace_range(range, "1");
+                replacements.insert(name, xml);
+            }
+        }
+        if replacements.is_empty() {
+            return Ok(None);
+        }
+        let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let path = dir
+            .path()
+            .join(input.file_name().ok_or("Missing PPTX filename")?);
+        let mut writer = zip::ZipWriter::new(File::create(&path).map_err(|e| e.to_string())?);
+        for index in 0..archive.len() {
+            let entry = archive.by_index(index).map_err(|e| e.to_string())?;
+            let name = entry.name().map_err(|e| e.to_string())?.to_string();
+            if let Some(xml) = replacements.get(&name) {
+                writer
+                    .start_file(name, zip::write::SimpleFileOptions::default())
+                    .map_err(|e| e.to_string())?;
+                writer
+                    .write_all(xml.as_bytes())
+                    .map_err(|e| e.to_string())?;
+            } else {
+                writer.raw_copy_file(entry).map_err(|e| e.to_string())?;
+            }
+        }
+        writer.finish().map_err(|e| e.to_string())?;
+        Ok(Some((dir, path)))
+    }
+
+    const P: &'static str = "http://schemas.openxmlformats.org/presentationml/2006/main";
+    const A: &'static str = "http://schemas.openxmlformats.org/drawingml/2006/main";
+    const R: &'static str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+
+    fn read_part(archive: &mut ZipArchive<File>, path: &str) -> Option<String> {
+        let mut xml = String::new();
+        archive.by_name(path).ok()?.read_to_string(&mut xml).ok()?;
+        Some(xml)
+    }
+
+    fn relationships(xml: &str) -> HashMap<String, PptxRelationship> {
+        let Ok(doc) = roxmltree::Document::parse(xml) else {
+            return HashMap::new();
+        };
+        doc.root_element()
+            .children()
+            .filter(|n| n.is_element())
+            .filter_map(|node| {
+                Some((
+                    node.attribute("Id")?.to_string(),
+                    PptxRelationship {
+                        target: node.attribute("Target")?.to_string(),
+                        kind: node.attribute("Type").unwrap_or_default().to_string(),
+                        external: node.attribute("TargetMode") == Some("External"),
+                    },
+                ))
+            })
+            .collect()
+    }
+
+    fn resolve_part(source: &str, target: &str) -> String {
+        let mut parts: Vec<&str> = if target.starts_with('/') {
+            Vec::new()
+        } else {
+            source
+                .rsplit_once('/')
+                .map(|(dir, _)| dir.split('/').collect())
+                .unwrap_or_default()
+        };
+        for part in target.split('/') {
+            match part {
+                "" | "." => {}
+                ".." => {
+                    parts.pop();
+                }
+                _ => parts.push(part),
+            }
+        }
+        parts.join("/")
+    }
+
+    fn rels_part(part: &str) -> String {
+        let (dir, name) = part.rsplit_once('/').unwrap_or(("", part));
+        format!("{dir}/_rels/{name}.rels")
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn extract_slide_links(
+        xml: &str,
+        slide_part: &str,
+        rels: &HashMap<String, PptxRelationship>,
+        positions: &HashMap<String, usize>,
+        index: usize,
+        hidden: &std::collections::HashSet<usize>,
+        width: u64,
+        height: u64,
+    ) -> Vec<PdfLinkInfo> {
+        let Ok(doc) = roxmltree::Document::parse(xml) else {
+            return Vec::new();
+        };
+        let visible = |i: &usize| !hidden.contains(&(i + 1));
+        doc.descendants()
+            .filter(|node| node.has_tag_name((Self::A, "hlinkClick")))
+            .filter_map(|link| {
+                let action = link.attribute("action").unwrap_or_default();
+                let target = if let Some(jump) =
+                    action.strip_prefix("ppaction://hlinkshowjump?jump=")
+                {
+                    match jump {
+                        "nextslide" => (index + 1..positions.len())
+                            .find(visible)
+                            .map(PdfLinkTarget::Page)
+                            .unwrap_or(PdfLinkTarget::EndShow),
+                        "previousslide" => PdfLinkTarget::Page((0..index).rev().find(visible)?),
+                        "firstslide" => PdfLinkTarget::Page((0..positions.len()).find(visible)?),
+                        "lastslide" => {
+                            PdfLinkTarget::Page((0..positions.len()).rev().find(visible)?)
+                        }
+                        "endshow" => PdfLinkTarget::EndShow,
+                        _ => return None,
+                    }
+                } else {
+                    let rel = rels.get(link.attribute((Self::R, "id"))?)?;
+                    if action == "ppaction://hlinksldjump"
+                        || (action.is_empty() && rel.kind.ends_with("/slide"))
+                    {
+                        if rel.external {
+                            return None;
+                        }
+                        PdfLinkTarget::Page(
+                            *positions.get(&Self::resolve_part(slide_part, &rel.target))?,
+                        )
+                    } else if action.is_empty() && rel.external && rel.kind.ends_with("/hyperlink")
+                    {
+                        // Only normal browser/email links are opened by the presenter.
+                        if !Self::is_web_or_email_link(&rel.target) {
+                            return None;
+                        }
+                        PdfLinkTarget::Url(rel.target.clone())
+                    } else {
+                        return None;
+                    }
+                };
+                let shape = link.ancestors().find(|node| {
+                    node.has_tag_name((Self::P, "sp")) || node.has_tag_name((Self::P, "pic"))
+                })?;
+                let rect = Self::shape_link_rect(shape, width, height)?;
+                let tooltip = link
+                    .attribute("tooltip")
+                    .filter(|text| !text.is_empty())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| match &target {
+                        PdfLinkTarget::Url(url) => format!("Open: {url}"),
+                        PdfLinkTarget::Page(page) => format!("Jump to Slide {}", page + 1),
+                        PdfLinkTarget::EndShow => "End presentation".to_string(),
+                    });
+                Some(PdfLinkInfo {
+                    rect,
+                    target,
+                    tooltip,
+                })
+            })
+            .collect()
+    }
+
+    fn is_web_or_email_link(url: &str) -> bool {
+        url.split_once(':').is_some_and(|(scheme, _)| {
+            ["https", "http", "mailto"]
+                .iter()
+                .any(|allowed| scheme.eq_ignore_ascii_case(allowed))
+        })
+    }
+
+    fn merge_slide_links(pdf_links: &mut Vec<PdfLinkInfo>, native: &[PdfLinkInfo]) {
+        let additions: Vec<_> = native
+            .iter()
+            .filter(|link| {
+                // Retain precise PDF text-run regions when conversion preserved them.
+                let precise = pdf_links.iter().any(|pdf| {
+                    pdf.target == link.target
+                        && link.contains(
+                            pdf.rect[0] + pdf.rect[2] / 2.0,
+                            pdf.rect[1] + pdf.rect[3] / 2.0,
+                            0.0,
+                        )
+                });
+                // Several distinct text links can share a text box. Without individual
+                // PDF regions, making that entire box open the first URL would be wrong.
+                let ambiguous = native
+                    .iter()
+                    .any(|other| other.rect == link.rect && other.target != link.target);
+                !precise && !ambiguous
+            })
+            .cloned()
+            .collect();
+        pdf_links.splice(0..0, additions);
+    }
+
+    fn shape_link_rect(
+        shape: roxmltree::Node<'_, '_>,
+        width: u64,
+        height: u64,
+    ) -> Option<[f32; 4]> {
+        let number =
+            |node: roxmltree::Node<'_, '_>, attr| node.attribute(attr)?.parse::<f32>().ok();
+        let transform = shape
+            .descendants()
+            .find(|node| node.has_tag_name((Self::A, "xfrm")))?;
+        let vector = |transform: roxmltree::Node<'_, '_>, name, x, y| {
+            let node = transform
+                .children()
+                .find(|node| node.has_tag_name((Self::A, name)))?;
+            Some([number(node, x)?, number(node, y)?])
+        };
+        let offset = vector(transform, "off", "x", "y")?;
+        let extent = vector(transform, "ext", "cx", "cy")?;
+        let mut corners = [
+            offset,
+            [offset[0] + extent[0], offset[1]],
+            [offset[0], offset[1] + extent[1]],
+            [offset[0] + extent[0], offset[1] + extent[1]],
+        ];
+        let orient = |corners: &mut [[f32; 2]; 4],
+                      transform: roxmltree::Node<'_, '_>,
+                      offset: [f32; 2],
+                      extent: [f32; 2]| {
+            let angle = transform
+                .attribute("rot")
+                .and_then(|v| v.parse::<f32>().ok())
+                .unwrap_or(0.0)
+                / 60000.0;
+            let (sin, cos) = angle.to_radians().sin_cos();
+            for point in corners {
+                let mut x = point[0] - offset[0] - extent[0] / 2.0;
+                let mut y = point[1] - offset[1] - extent[1] / 2.0;
+                if matches!(transform.attribute("flipH"), Some("1" | "true")) {
+                    x = -x;
+                }
+                if matches!(transform.attribute("flipV"), Some("1" | "true")) {
+                    y = -y;
+                }
+                *point = [
+                    offset[0] + extent[0] / 2.0 + x * cos - y * sin,
+                    offset[1] + extent[1] / 2.0 + x * sin + y * cos,
+                ];
+            }
+        };
+        orient(&mut corners, transform, offset, extent);
+        // Map nested group child coordinates into each parent's coordinate system.
+        for group in shape
+            .ancestors()
+            .filter(|node| node.has_tag_name((Self::P, "grpSp")))
+        {
+            let transform = group
+                .children()
+                .find(|node| node.has_tag_name((Self::P, "grpSpPr")))?
+                .children()
+                .find(|node| node.has_tag_name((Self::A, "xfrm")))?;
+            let offset = vector(transform, "off", "x", "y")?;
+            let extent = vector(transform, "ext", "cx", "cy")?;
+            let child_offset = vector(transform, "chOff", "x", "y")?;
+            let child_extent = vector(transform, "chExt", "cx", "cy")?;
+            if child_extent.contains(&0.0) {
+                return None;
+            }
+            for point in &mut corners {
+                for axis in 0..2 {
+                    point[axis] = offset[axis]
+                        + (point[axis] - child_offset[axis]) * extent[axis] / child_extent[axis];
+                }
+            }
+            orient(&mut corners, transform, offset, extent);
+        }
+        if width == 0 || height == 0 {
+            return None;
+        }
+        let min = [
+            corners.iter().map(|p| p[0]).fold(f32::INFINITY, f32::min),
+            corners.iter().map(|p| p[1]).fold(f32::INFINITY, f32::min),
+        ];
+        let max = [
+            corners
+                .iter()
+                .map(|p| p[0])
+                .fold(f32::NEG_INFINITY, f32::max),
+            corners
+                .iter()
+                .map(|p| p[1])
+                .fold(f32::NEG_INFINITY, f32::max),
+        ];
+        let rect = [
+            min[0] / width as f32,
+            min[1] / height as f32,
+            (max[0] - min[0]) / width as f32,
+            (max[1] - min[1]) / height as f32,
+        ];
+        (rect.iter().all(|v| v.is_finite()) && rect[2] > 0.0 && rect[3] > 0.0).then_some(rect)
     }
 
     /// Extract slide dimensions from `ppt/presentation.xml`
@@ -560,20 +945,50 @@ impl PptxEngine {
         Some((cx, cy))
     }
 
-    /// Extract sections if present in `ppt/presentation.xml`
+    /// Map native PowerPoint sections to presentation positions, not slide file numbers.
     fn extract_sections(xml: &str) -> Vec<TocEntry> {
-        let mut entries = Vec::new();
-        // e.g. <p:section name="Introduction" id="...">
-        for part in xml.split("<p:section ") {
-            if let Some(name) = Self::extract_xml_attribute(part, "name") {
-                entries.push(TocEntry {
-                    title: name,
-                    page_index: 1, // Will align with first slide of section if mapped
+        const P: &str = "http://schemas.openxmlformats.org/presentationml/2006/main";
+        const P14: &str = "http://schemas.microsoft.com/office/powerpoint/2010/main";
+        let Ok(doc) = roxmltree::Document::parse(xml) else {
+            return Vec::new();
+        };
+        let presentation = doc.root_element();
+        let slide_positions: HashMap<_, _> = presentation
+            .children()
+            .find(|node| node.has_tag_name((P, "sldIdLst")))
+            .into_iter()
+            .flat_map(|list| {
+                list.children()
+                    .filter(|node| node.has_tag_name((P, "sldId")))
+            })
+            .enumerate()
+            .filter_map(|(index, node)| node.attribute("id").map(|id| (id, index + 1)))
+            .collect();
+
+        let mut entries: Vec<_> = presentation
+            .descendants()
+            .filter(|node| node.has_tag_name((P14, "section")))
+            .filter_map(|section| {
+                let title = section.attribute("name")?;
+                if title.trim().is_empty() {
+                    return None;
+                }
+                let page_index = section
+                    .children()
+                    .filter(|node| node.has_tag_name((P14, "sldIdLst")))
+                    .flat_map(|list| list.children())
+                    .filter(|node| node.has_tag_name((P14, "sldId")))
+                    .filter_map(|node| slide_positions.get(node.attribute("id")?).copied())
+                    .min()?;
+                Some(TocEntry {
+                    title: title.to_string(),
+                    page_index,
                     level: 0,
-                    frame_index: entries.len() + 1,
-                });
-            }
-        }
+                    frame_index: page_index,
+                })
+            })
+            .collect();
+        entries.sort_by_key(|entry| entry.page_index);
         entries
     }
 
@@ -628,20 +1043,6 @@ impl PptxEngine {
             }
         }
         result
-    }
-
-    /// Extract relationship ID map from `ppt/slides/_rels/slide{N}.xml.rels`
-    fn extract_relationship_map(rels_xml: &str) -> HashMap<String, String> {
-        let mut map = HashMap::new();
-        for part in rels_xml.split("<Relationship ") {
-            if let (Some(id), Some(target)) = (
-                Self::extract_xml_attribute(part, "Id"),
-                Self::extract_xml_attribute(part, "Target"),
-            ) {
-                map.insert(id, target);
-            }
-        }
-        map
     }
 
     /// Extract MediaClips from a slide's XML and its relationships
@@ -866,6 +1267,337 @@ mod tests {
             assert_eq!(meta.sections.len(), 1);
             assert_eq!(meta.sections[0].title, "Introduction");
         }
+    }
+
+    #[test]
+    fn native_sections_replace_pdf_frame_fallback_on_load() {
+        use pdfium_render::prelude::*;
+
+        let temp = tempfile::tempdir().unwrap();
+        let pptx = temp.path().join("sections.pptx");
+        std::fs::copy("test_deck/sample_deck.pptx", &pptx).unwrap();
+        // A companion PDF exercises loading without invoking PowerPoint/LibreOffice.
+        let pdfium = PdfiumLoader::get_pdfium().unwrap();
+        let mut pdf = pdfium.create_new_pdf().unwrap();
+        pdf.pages_mut()
+            .create_page_at_end(PdfPagePaperSize::Custom(
+                PdfPoints::new(960.0),
+                PdfPoints::new(540.0),
+            ))
+            .unwrap();
+        let pdf_path = pptx.with_extension("pdf");
+        pdf.save_to_file(&pdf_path).unwrap();
+        drop(pdf);
+
+        let (slides, toc) = PptxEngine::load_deck_from_pptx(&pptx, RenderQuality::Eco).unwrap();
+        assert_eq!(slides.len(), 1);
+        assert_eq!(
+            toc,
+            vec![TocEntry {
+                title: "Introduction".into(),
+                page_index: 1,
+                frame_index: 1,
+                level: 0,
+            }]
+        );
+    }
+
+    #[test]
+    fn sections_follow_slide_order_and_decode_names() {
+        // Prefixes are arbitrary; slide IDs are neither positions nor file numbers.
+        let xml = r#"<deck:presentation
+            xmlns:deck="http://schemas.openxmlformats.org/presentationml/2006/main"
+            xmlns:sec="http://schemas.microsoft.com/office/powerpoint/2010/main">
+          <deck:sldIdLst>
+            <deck:sldId id="300"/><deck:sldId id="256"/>
+            <deck:sldId id="900"/><deck:sldId id="257"/>
+          </deck:sldIdLst>
+          <deck:extLst><deck:ext><sec:sectionLst>
+            <sec:section name="Later"><sec:sldIdLst>
+              <sec:sldId id="257"/><sec:sldId id="900"/>
+            </sec:sldIdLst></sec:section>
+            <sec:section name="Intro &amp; &quot;Goals&quot;"><sec:sldIdLst>
+              <sec:sldId id="300"/><sec:sldId id="256"/>
+            </sec:sldIdLst></sec:section>
+            <sec:section name="Empty"/>
+            <sec:section name="Stale"><sec:sldIdLst>
+              <sec:sldId id="999"/>
+            </sec:sldIdLst></sec:section>
+          </sec:sectionLst></deck:ext></deck:extLst>
+        </deck:presentation>"#;
+        let sections = PptxEngine::extract_sections(xml);
+        assert_eq!(
+            sections,
+            vec![
+                TocEntry {
+                    title: "Intro & \"Goals\"".into(),
+                    page_index: 1,
+                    frame_index: 1,
+                    level: 0
+                },
+                TocEntry {
+                    title: "Later".into(),
+                    page_index: 3,
+                    frame_index: 3,
+                    level: 0
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn sections_absent_or_invalid_allow_title_fallback() {
+        assert!(PptxEngine::extract_sections("<broken").is_empty());
+        assert!(PptxEngine::extract_sections(
+            r#"<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>"#
+        ).is_empty());
+    }
+
+    fn write_interactive_deck(path: &Path) {
+        let mut zip = zip::ZipWriter::new(File::create(path).unwrap());
+        let rel_ns = "http://schemas.openxmlformats.org/package/2006/relationships";
+        let mut part = |name: &str, xml: &str| {
+            zip.start_file(name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(xml.as_bytes()).unwrap();
+        };
+        part(
+            "ppt/presentation.xml",
+            &format!(
+                r#"<p:presentation xmlns:p="{}" xmlns:r="{}">
+            <p:sldIdLst><p:sldId id="900" r:id="one"/><p:sldId id="256" r:id="two"/><p:sldId id="500" r:id="three"/></p:sldIdLst>
+            <p:sldSz cx="1000" cy="500"/>
+        </p:presentation>"#,
+                PptxEngine::P,
+                PptxEngine::R
+            ),
+        );
+        part(
+            "ppt/_rels/presentation.xml.rels",
+            &format!(
+                r#"<Relationships xmlns="{rel_ns}">
+            <Relationship Id="one" Target="slides/slide7.xml"/>
+            <Relationship Id="two" Target="slides/slide2.xml"/>
+            <Relationship Id="three" Target="slides/slide19.xml"/>
+        </Relationships>"#
+            ),
+        );
+        let mut shapes = String::new();
+        for (button_index, (id, action)) in [
+            ("web", ""),
+            ("hidden", "ppaction://hlinksldjump"),
+            ("", "ppaction://hlinkshowjump?jump=nextslide"),
+            ("", "ppaction://hlinkshowjump?jump=previousslide"),
+            ("", "ppaction://hlinkshowjump?jump=firstslide"),
+            ("", "ppaction://hlinkshowjump?jump=lastslide"),
+            ("", "ppaction://hlinkshowjump?jump=endshow"),
+            ("web", "ppaction://macro?name=DoSomething"),
+            ("file", ""),
+            ("missing", "ppaction://hlinksldjump"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            shapes.push_str(&format!(r#"<p:sp><p:nvSpPr><p:cNvPr><a:hlinkClick r:id="{id}" action="{action}"/></p:cNvPr></p:nvSpPr>
+                <p:spPr><a:xfrm><a:off x="{x}" y="50"/><a:ext cx="200" cy="100"/></a:xfrm></p:spPr></p:sp>"#, x = 100 + button_index * 10));
+        }
+        part(
+            "ppt/slides/slide7.xml",
+            &format!(
+                r#"<p:sld xmlns:p="{}" xmlns:a="{}" xmlns:r="{}">
+            <p:cSld><p:spTree><p:sp><p:nvSpPr><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>
+            <p:txBody><a:p><a:r><a:t>First in display order</a:t></a:r></a:p></p:txBody></p:sp>{shapes}</p:spTree></p:cSld>
+        </p:sld>"#,
+                PptxEngine::P,
+                PptxEngine::A,
+                PptxEngine::R
+            ),
+        );
+        part(
+            "ppt/slides/slide2.xml",
+            &format!(r#"<p:sld xmlns:p="{}" show="false"/>"#, PptxEngine::P),
+        );
+        part(
+            "ppt/slides/slide19.xml",
+            &format!(
+                r#"<p:sld xmlns:p="{}" xmlns:a="{}" show="1"><p:sp>
+                <p:nvSpPr><p:cNvPr><a:hlinkClick action="ppaction://hlinkshowjump?jump=nextslide"/></p:cNvPr></p:nvSpPr>
+                <p:spPr><a:xfrm><a:off x="10" y="10"/><a:ext cx="20" cy="20"/></a:xfrm></p:spPr>
+            </p:sp></p:sld>"#,
+                PptxEngine::P,
+                PptxEngine::A
+            ),
+        );
+        part(
+            "ppt/slides/_rels/slide7.xml.rels",
+            &format!(
+                r#"<Relationships xmlns="{rel_ns}">
+            <Relationship Id="web" Type="{}/hyperlink" Target="https://example.org/?a=1&amp;b=2" TargetMode="External"/>
+            <Relationship Id="hidden" Type="{}/slide" Target="../slides/slide2.xml"/>
+            <Relationship Id="file" Type="{}/hyperlink" Target="file:///tmp/program" TargetMode="External"/>
+            <Relationship Id="note" Type="{}/notesSlide" Target="../notesSlides/notesSlide42.xml"/>
+        </Relationships>"#,
+                PptxEngine::R,
+                PptxEngine::R,
+                PptxEngine::R,
+                PptxEngine::R
+            ),
+        );
+        part(
+            "ppt/notesSlides/notesSlide42.xml",
+            &format!(
+                r#"<p:notes xmlns:p="{}" xmlns:a="{}"><p:sp><p:nvSpPr><p:nvPr><p:ph type="body"/></p:nvPr></p:nvSpPr><p:txBody><a:p><a:r><a:t>Correct notes</a:t></a:r></a:p></p:txBody></p:sp></p:notes>"#,
+                PptxEngine::P,
+                PptxEngine::A
+            ),
+        );
+        zip.finish().unwrap();
+    }
+
+    fn write_companion_pdf(path: &Path, count: usize) {
+        use pdfium_render::prelude::*;
+        let pdfium = PdfiumLoader::get_pdfium().unwrap();
+        let mut pdf = pdfium.create_new_pdf().unwrap();
+        for _ in 0..count {
+            pdf.pages_mut()
+                .create_page_at_end(PdfPagePaperSize::Custom(
+                    PdfPoints::new(160.0),
+                    PdfPoints::new(90.0),
+                ))
+                .unwrap();
+        }
+        pdf.save_to_file(&path.with_extension("pdf")).unwrap();
+    }
+
+    #[test]
+    fn reordered_slides_hidden_flags_and_click_actions() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("interactive.pptx");
+        write_interactive_deck(&path);
+        let meta = PptxEngine::parse_pptx_metadata(&path).unwrap();
+        assert_eq!(meta.slide_count, 3);
+        assert_eq!(meta.hidden_slides, [2].into_iter().collect());
+        assert_eq!(meta.slide_titles[&1], "First in display order");
+        assert_eq!(meta.slide_notes[&1], "Correct notes");
+        assert_eq!(meta.slide_links[&3][0].target, PdfLinkTarget::EndShow);
+        let links = &meta.slide_links[&1];
+        assert_eq!(
+            links
+                .iter()
+                .map(|link| link.target.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                PdfLinkTarget::Url("https://example.org/?a=1&b=2".into()),
+                PdfLinkTarget::Page(1), // explicit destination can be hidden
+                PdfLinkTarget::Page(2), // next action skips the hidden slide
+                PdfLinkTarget::Page(0),
+                PdfLinkTarget::Page(2),
+                PdfLinkTarget::EndShow,
+            ]
+        );
+        assert_eq!(links[0].rect, [0.1, 0.1, 0.2, 0.2]);
+        assert!(links[0].contains(0.2, 0.2, 0.0));
+        assert!(!links[0].contains(0.8, 0.8, 0.0));
+
+        write_companion_pdf(&path, 3);
+        let (slides, _) = PptxEngine::load_deck_from_pptx(&path, RenderQuality::Eco).unwrap();
+        assert_eq!(
+            slides.iter().map(|s| s.is_hidden).collect::<Vec<_>>(),
+            [false, true, false]
+        );
+        assert_eq!(slides[0].links, *links);
+        assert!(slides[1].export_snapshot().is_hidden);
+        let mut deck = super::super::PresentationDeck {
+            file_path: Some(path),
+            slides,
+            toc: Vec::new(),
+            current_index: 0,
+            quality: RenderQuality::Eco,
+        };
+        assert_eq!(deck.next_visible_index(), Some(2));
+        assert!(deck.next());
+        assert_eq!(deck.current_index, 2);
+        assert!(!deck.next());
+        assert!(deck.prev());
+        assert_eq!(deck.current_index, 0);
+        assert!(!deck.prev());
+        assert!(deck.jump_to(1)); // hidden slides remain directly accessible
+        assert!(deck.next());
+        assert_eq!(deck.current_index, 2);
+        assert!(deck.first_slide());
+        assert!(deck.next_frame());
+        assert_eq!(deck.current_index, 2);
+        assert!(deck.prev_frame());
+        assert_eq!(deck.current_index, 0);
+        deck.slides[0].is_hidden = true;
+        assert!(deck.first_slide());
+        assert_eq!(deck.current_index, 2);
+        deck.slides[2].is_hidden = true;
+        assert!(!deck.first_slide());
+        assert!(!deck.last_slide());
+        assert!(!deck.next());
+        assert!(!deck.prev());
+    }
+
+    #[test]
+    fn hidden_export_copy_preserves_original_and_relationships() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("hidden.pptx");
+        write_interactive_deck(&path);
+        let original = std::fs::read(&path).unwrap();
+        let (_copy_dir, copy) = PptxEngine::visible_export_copy(&path).unwrap().unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        let meta = PptxEngine::parse_pptx_metadata(&copy).unwrap();
+        assert!(meta.hidden_slides.is_empty());
+        assert_eq!(meta.slide_count, 3);
+        assert_eq!(meta.slide_notes[&1], "Correct notes");
+        assert!(PptxEngine::visible_export_copy(&copy).unwrap().is_none());
+    }
+
+    #[test]
+    fn grouped_buttons_and_precise_text_link_regions() {
+        let xml = format!(
+            r#"<p:grpSp xmlns:p="{}" xmlns:a="{}">
+            <p:grpSpPr><a:xfrm><a:off x="100" y="50"/><a:ext cx="400" cy="200"/>
+            <a:chOff x="0" y="0"/><a:chExt cx="200" cy="100"/></a:xfrm></p:grpSpPr>
+            <p:sp><p:spPr><a:xfrm><a:off x="10" y="5"/><a:ext cx="20" cy="10"/></a:xfrm></p:spPr></p:sp>
+        </p:grpSp>"#,
+            PptxEngine::P,
+            PptxEngine::A
+        );
+        let doc = roxmltree::Document::parse(&xml).unwrap();
+        let shape = doc
+            .descendants()
+            .find(|n| n.has_tag_name((PptxEngine::P, "sp")))
+            .unwrap();
+        let rect = PptxEngine::shape_link_rect(shape, 1000, 500).unwrap();
+        assert_eq!(rect, [0.12, 0.12, 0.04, 0.04]);
+        let native = vec![
+            PdfLinkInfo::new_url([0.0, 0.0, 1.0, 1.0], "https://one.example".into()),
+            PdfLinkInfo::new_url([0.0, 0.0, 1.0, 1.0], "https://two.example".into()),
+        ];
+        let mut precise = vec![
+            PdfLinkInfo::new_url([0.1, 0.1, 0.2, 0.1], "https://one.example".into()),
+            PdfLinkInfo::new_url([0.1, 0.3, 0.2, 0.1], "https://two.example".into()),
+        ];
+        let expected = precise.clone();
+        PptxEngine::merge_slide_links(&mut precise, &native);
+        assert_eq!(precise, expected);
+        let mut missing = Vec::new();
+        PptxEngine::merge_slide_links(&mut missing, &native);
+        assert!(missing.is_empty());
+    }
+
+    #[test]
+    fn omitted_hidden_pages_are_rejected_instead_of_misaligning_links() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("hidden.pptx");
+        write_interactive_deck(&path);
+        write_companion_pdf(&path, 2);
+        let error = PptxEngine::load_deck_from_pptx(&path, RenderQuality::Eco)
+            .err()
+            .unwrap();
+        assert!(error.contains("hidden slides included"), "{error}");
     }
 
     #[test]

@@ -152,6 +152,7 @@ component LaserVectorTrail inherits Rectangle {
 
 export struct SlideThumbnail {
     index: int,
+    is_hidden: bool,
     image: image,
 }
 
@@ -2466,6 +2467,22 @@ export component PresenterWindow inherits Window {
                                         height: 100%;
                                         source: card_item.thumb.image;
                                         image-fit: contain;
+                                    }
+
+                                    if card_item.thumb.is_hidden: Rectangle {
+                                        x: 6px;
+                                        y: 6px;
+                                        width: 56px;
+                                        height: 22px;
+                                        border-radius: 4px;
+                                        background: #18181be6;
+                                        Text {
+                                            text: "Hidden";
+                                            color: #fbbf24;
+                                            font-size: 11px;
+                                            horizontal-alignment: center;
+                                            vertical-alignment: center;
+                                        }
                                     }
 
                                     // Source slot ghost label while being dragged

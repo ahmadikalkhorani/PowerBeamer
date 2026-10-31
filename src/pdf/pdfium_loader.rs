@@ -359,6 +359,7 @@ impl PdfiumLoader {
                 };
 
                 let tooltip = match &target {
+                    PdfLinkTarget::EndShow => "End presentation".to_string(),
                     PdfLinkTarget::Url(u) => format!("Open: {}", u),
                     PdfLinkTarget::Page(p) => format!("Jump to Slide {}", p + 1),
                 };
@@ -380,6 +381,7 @@ impl PdfiumLoader {
                 title: format!("Slide {}", m.slide_index),
                 notes: extracted_notes,
                 is_whiteboard: false,
+                is_hidden: false,
                 is_dual_screen: is_dual_mode.is_some(),
                 aspect_ratio: slide_aspect,
                 media_clips,

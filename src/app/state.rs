@@ -491,6 +491,8 @@ impl AppState {
         self.deck.slides = slides;
         self.deck.toc = toc;
         self.deck.current_index = 0;
+        self.is_end_of_show = !self.deck.first_slide();
+        self.blank_mode = i32::from(self.is_end_of_show);
         self.source_stamp = file_stamp(&path);
         self.pending_source_stamp = None;
         self.deck.file_path = Some(path);
