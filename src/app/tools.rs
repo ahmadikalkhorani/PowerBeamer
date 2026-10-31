@@ -335,6 +335,27 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
         });
     }
 
+    presenter_window.on_palette_contains(|color, palette| {
+        use slint::Model;
+        palette.iter().any(|saved| saved == color)
+    });
+    {
+        let state = state.clone();
+        let presenter = presenter_window.as_weak();
+        presenter_window.on_remove_custom_color(move |color| {
+            let rgba = [color.red(), color.green(), color.blue(), color.alpha()];
+            let mut st = state.borrow_mut();
+            st.custom_palette.retain(|saved| *saved != rgba);
+            if let Some(p) = presenter.upgrade() {
+                let colors: Vec<_> = st
+                    .custom_palette
+                    .iter()
+                    .map(|&rgba| slint::Color::from_argb_u8(rgba[3], rgba[0], rgba[1], rgba[2]))
+                    .collect();
+                p.set_custom_palette(std::rc::Rc::new(slint::VecModel::from(colors)).into());
+            }
+        });
+    }
     // --- ADD CUSTOM COLOR TO PALETTE ---
     {
         let state = state.clone();

@@ -10,6 +10,8 @@ use std::path::PathBuf;
 #[serde(default)]
 pub struct Settings {
     pub notes_font_size: Option<i32>,
+    pub audience_borderless: Option<bool>,
+    pub audience_always_on_top: Option<bool>,
     pub sync_with_source: Option<bool>,
     pub render_quality: Option<String>,
 

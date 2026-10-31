@@ -217,6 +217,8 @@ pub(crate) struct AppState {
     // Spectrogram/Waveform Audio Timeline Progress Box Tool
     pub(crate) media_tracking_tool_active: bool,
     pub(crate) drawing_track_box: Option<(f32, f32, f32, f32)>,
+    pub(crate) audience_borderless: bool,
+    pub(crate) audience_always_on_top: bool,
     pub(crate) media_track_fps_mode: i32, // 0: Auto (Linked to quality), 1: 15 fps, 2: 30 fps, 3: 60 fps
     pub(crate) media_track_show_audience_box: bool,
     pub(crate) media_track_needle_width: f32,
@@ -263,6 +265,8 @@ impl AppState {
             timer_flash_overtime: Some(self.timer_flash_overtime),
             timer_show_clock: Some(self.timer_show_clock),
             notes_font_size: Some(self.notes_font_size),
+            audience_borderless: Some(self.audience_borderless),
+            audience_always_on_top: Some(self.audience_always_on_top),
             timer_size: Some(self.timer_size),
             timer_start_on_advance: Some(self.timer_start_on_advance),
             media_track_fps_mode: Some(self.media_track_fps_mode),
@@ -309,6 +313,8 @@ impl AppState {
             timer_flash_overtime,
             timer_show_clock,
             notes_font_size,
+            audience_borderless,
+            audience_always_on_top,
             timer_size,
             timer_start_on_advance,
             media_track_fps_mode,
@@ -404,6 +410,8 @@ impl AppState {
         p.set_timer_flash_overtime(self.timer_flash_overtime);
         p.set_timer_show_clock(self.timer_show_clock);
         p.set_notes_font_size(self.notes_font_size.clamp(8, 48));
+        p.set_audience_borderless(self.audience_borderless);
+        p.set_audience_always_on_top(self.audience_always_on_top);
         p.set_timer_size(self.timer_size);
         p.set_timer_start_on_advance(self.timer_start_on_advance);
         p.set_media_track_fps_mode(self.media_track_fps_mode);
@@ -660,6 +668,8 @@ impl AppState {
             selection_box: None,
             media_tracking_tool_active: false,
             drawing_track_box: None,
+            audience_borderless: false,
+            audience_always_on_top: false,
             media_track_fps_mode: 0, // Auto
             media_track_show_audience_box: true,
             media_track_needle_width: 3.0,

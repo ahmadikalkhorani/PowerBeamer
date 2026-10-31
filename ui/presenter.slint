@@ -9,6 +9,50 @@ component PanelButton inherits Rectangle {
     Text { text: root.label; color: #e5e7eb; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; }
     touch := TouchArea { clicked => { root.clicked(); } }
 }
+component QuickActionButton inherits Rectangle {
+    in property <string> label;
+    in property <image> glyph;
+    callback clicked();
+    height: 38px;
+    min-width: 0px;
+    preferred-width: 0px;
+    horizontal-stretch: 1;
+    border-radius: 8px;
+    background: action_touch.pressed ? #303038 : (action_touch.has-hover ? #29292f : #222227);
+    border-width: 1px;
+    border-color: action_touch.has-hover ? #4b5563 : #34343c;
+    accessible-role: button;
+    accessible-label: root.label;
+    HorizontalLayout {
+        alignment: center;
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 8px;
+        Rectangle {
+            width: 16px;
+            Image {
+                source: root.glyph;
+                width: 16px;
+                height: 16px;
+                y: (parent.height - self.height) / 2;
+                colorize: action_touch.has-hover ? #e5e7eb : #9ca3af;
+            }
+        }
+        Text {
+            text: root.label;
+            color: #e5e7eb;
+            font-size: 12px;
+            font-weight: 500;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+    action_touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
 component PanelToggle inherits Rectangle {
     in property <string> label;
     in property <bool> active;
@@ -314,6 +358,7 @@ component PresenterHeaderBtn inherits Rectangle {
     in property <string> tooltip_hint: "";
     in property <bool> align_right: false;
     callback clicked();
+    callback right_clicked();
 
     width: 32px;
     height: 28px;
@@ -327,6 +372,11 @@ component PresenterHeaderBtn inherits Rectangle {
     touch := TouchArea {
         mouse-cursor: pointer;
         clicked => { root.clicked(); }
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.up && event.button == PointerEventButton.right) {
+                root.right_clicked();
+            }
+        }
     }
 
     @children
@@ -720,6 +770,12 @@ export component PresenterWindow inherits Window {
     in-out property <float> laser_y: 0.5;
     in-out property <string> render_quality: "Ultra Vector (600 DPI)";
     in-out property <bool> audience_window_open: false;
+    in-out property <bool> show_audience_menu: false;
+    in-out property <bool> audience_borderless: false;
+    in-out property <bool> audience_always_on_top: false;
+    in-out property <bool> audience_fullscreen: false;
+    in-out property <length> audience_menu_anchor_x: 0px;
+    in-out property <length> audience_menu_anchor_y: 0px;
     in-out property <int> notes_font_size: 14;
     callback resize_notes_font(int);
     callback toggle_preview_window(int);
@@ -917,6 +973,9 @@ export component PresenterWindow inherits Window {
     callback reset_timer();
     callback timer_options_changed();
     callback toggle_audience_window();
+    callback set_audience_borderless(bool);
+    callback set_audience_always_on_top(bool);
+    callback set_audience_fullscreen(bool);
     callback toggle_notes_window();
     callback update_slide_notes(int, string);
     callback quality_changed(string);
@@ -963,6 +1022,8 @@ export component PresenterWindow inherits Window {
 
     // Color Swatch & Palette Callbacks
     callback add_custom_color(color);
+    callback remove_custom_color(color);
+    pure callback palette_contains(color, [color]) -> bool;
 
     // Auto-Updater & Software Releases
     in-out property <string> app_version: "0.1.0";
@@ -1029,7 +1090,10 @@ export component PresenterWindow inherits Window {
     // Keyboard shortcuts, shared by the presenter and audience windows (returns true if handled)
     public function handle_key(text: string, ctrl: bool, meta: bool, shift: bool) -> bool {
         if (text == Key.Escape) {
-            if (root.show_toc_drawer) {
+            if (root.show_audience_menu) {
+                root.show_audience_menu = false;
+                return true;
+            } else if (root.show_toc_drawer) {
                 root.show_toc_drawer = false;
                 return true;
             } else if (root.show_updates_modal) {
@@ -1080,6 +1144,10 @@ export component PresenterWindow inherits Window {
                 return false;
             }
         } else if (ctrl || meta) {
+            if (shift && (text == "b" || text == "B")) {
+                root.set_audience_borderless(!root.audience_borderless);
+                return true;
+            }
             // Command shortcuts must not fall through to single-letter tools.
             if ((text == "z" || text == "Z") && !shift) {
                 root.undo(); return true;
@@ -1234,30 +1302,10 @@ export component PresenterWindow inherits Window {
                 padding-right: 18px;
                 alignment: space-between;
 
-                // Left: App Icon, Blue Close ✕, Undo, Redo
+                // Left: Blue Close ✕, Undo, Redo
                 HorizontalLayout {
                     spacing: 12px;
                     alignment: start;
-
-                    // Presenter App Icon Badge
-                    Rectangle {
-                        width: 28px;
-                        height: 28px;
-                        border-radius: 6px;
-                        background: #141416;
-                        border-width: 1px;
-                        border-color: #2e2e34;
-                        y: 10px;
-                        clip: true;
-
-                        Image {
-                            source: @image-url("icons/app_icon.svg");
-                            width: 20px;
-                            height: 20px;
-                            x: (parent.width - self.width) / 2;
-                            y: (parent.height - self.height) / 2;
-                        }
-                    }
 
                     // Close button (Blue)
                     Rectangle {
@@ -1364,30 +1412,10 @@ export component PresenterWindow inherits Window {
                 padding-right: 14px;
                 alignment: space-between;
 
-                // Left: App Icon, Back < , Close x , Document title
+                // Left: Presentation file controls and document title
                 HorizontalLayout {
                     spacing: 10px;
                     alignment: start;
-
-                    // Presenter App Icon Badge
-                    Rectangle {
-                        width: 28px;
-                        height: 28px;
-                        border-radius: 6px;
-                        background: #141416;
-                        border-width: 1px;
-                        border-color: #2e2e34;
-                        y: 10px;
-                        clip: true;
-
-                        Image {
-                            source: @image-url("icons/app_icon.svg");
-                            width: 20px;
-                            height: 20px;
-                            x: (parent.width - self.width) / 2;
-                            y: (parent.height - self.height) / 2;
-                        }
-                    }
 
                     // Open PDF / Choose Presentation button
                     Rectangle {
@@ -1793,10 +1821,17 @@ export component PresenterWindow inherits Window {
                         is_active: root.audience_window_open;
                         active_bg: #2563eb;
                         active_border: #60a5fa;
-                        tooltip_title: "Audience Window";
+                        tooltip_title: root.show_audience_menu ? "" : "Audience Window";
                         shortcut: "Display";
-                        tooltip_hint: "Open external audience projector display window";
+                        tooltip_hint: "Click to open · Right-click for window options";
                         clicked => { root.toggle_audience_window(); }
+                        right_clicked => {
+                            root.audience_menu_anchor_x = self.absolute-position.x + self.width;
+                            root.audience_menu_anchor_y = self.absolute-position.y + self.height;
+                            root.show_quality_menu = false;
+                            root.show_timer_menu = false;
+                            root.show_audience_menu = !root.show_audience_menu;
+                        }
 
                         Image {
                             source: @image-url("icons/audience_window.svg");
@@ -3167,9 +3202,9 @@ export component PresenterWindow inherits Window {
                 // --- Presenter FLOATING COLOR POPOVER (Exact from Screenshot) ---
                 if root.show_color_popover: Rectangle {
                     width: 290px;
-                    height: 400px;
+                    height: 324px + palette_scroll.height - (root.custom_palette.length == 0 ? 6px : 0px);
                     x: 52px;
-                    y: max(40px, min(root.height - 420px, 310px + (root.active_color_slot * 42px)));
+                    y: max(40px, min(root.height - self.height - 20px, 310px + (root.active_color_slot * 42px)));
                     background: #1c1c1e;
                     border-radius: 16px;
                     border-width: 1px;
@@ -3195,7 +3230,7 @@ export component PresenterWindow inherits Window {
                         padding-bottom: 12px;
                         padding-left: 16px;
                         padding-right: 16px;
-                        spacing: 12px;
+                        spacing: 8px;
 
                         // Header with Title and Done button
                         HorizontalLayout {
@@ -3628,60 +3663,47 @@ export component PresenterWindow inherits Window {
                             }
                         }
 
-                        // Palette Section (matches screenshot: "Palette", circles, (+) button)
+                        // Saved colors wrap into a bounded, vertically scrollable grid.
                         VerticalLayout {
-                            spacing: 8px;
-
-                            Text {
-                                text: "Palette";
-                                font-size: 14px;
-                                font-weight: 600;
-                                color: #ffffff;
-                            }
-
+                            spacing: root.custom_palette.length == 0 ? 0px : 6px;
+                            vertical-stretch: 0;
                             HorizontalLayout {
-                                spacing: 8px;
-                                alignment: start;
-
-                                for pal_col[i] in root.custom_palette: Rectangle {
+                                height: 28px;
+                                spacing: 6px;
+                                Text {
+                                    text: "Palette";
+                                    font-size: 14px;
+                                    font-weight: 600;
+                                    color: #ffffff;
+                                    vertical-alignment: center;
+                                }
+                                // Remove the selected saved color without changing the drawing color.
+                                Rectangle {
+                                    property <bool> can_remove: root.palette_contains(root.active_color, root.custom_palette);
                                     width: 28px;
                                     height: 28px;
-                                    background: transparent;
-
-                                    // Same-color glow aura when active
-                                    if root.active_color == pal_col: Rectangle {
-                                        x: (parent.width - self.width) / 2;
-                                        y: (parent.height - self.height) / 2;
-                                        width: 28px;
-                                        height: 28px;
-                                        border-radius: 14px;
-                                        background: pal_col.transparentize(0.55);
-                                        drop-shadow-blur: 10px;
-                                        drop-shadow-color: pal_col;
+                                    border-radius: 14px;
+                                    background: btn_remove_pal.has-hover && self.can_remove ? #374151 : #27272a;
+                                    border-width: 1px;
+                                    border-color: #3f3f46;
+                                    opacity: self.can_remove ? 1.0 : 0.4;
+                                    Text {
+                                        text: "−";
+                                        font-size: 18px;
+                                        font-weight: 600;
+                                        color: #38bdf8;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
                                     }
-
-                                    // The Color Swatch Circle
-                                    Rectangle {
-                                        x: (parent.width - self.width) / 2;
-                                        y: (parent.height - self.height) / 2;
-                                        width: (root.active_color == pal_col) ? 24px : 20px;
-                                        height: (root.active_color == pal_col) ? 24px : 20px;
-                                        border-radius: self.width / 2;
-                                        background: pal_col;
-                                        drop-shadow-blur: (root.active_color == pal_col) ? 8px : 0px;
-                                        drop-shadow-color: pal_col;
-                                        border-width: (root.active_color == pal_col) ? 2px : 0px;
-                                        border-color: #ffffff;
-                                    }
-
-                                    TouchArea {
+                                    btn_remove_pal := TouchArea {
+                                        enabled: parent.can_remove;
                                         mouse-cursor: pointer;
                                         clicked => {
-                                            root.select_color_internal(pal_col);
+                                            root.remove_custom_color(root.active_color);
+                                            palette_scroll.content-y = max(palette_scroll.content-y, min(0px, palette_scroll.height - palette_scroll.content-height));
                                         }
                                     }
                                 }
-
                                 // Circular Add (+) button
                                 Rectangle {
                                     width: 28px;
@@ -3703,7 +3725,62 @@ export component PresenterWindow inherits Window {
                                     btn_add_pal := TouchArea {
                                         mouse-cursor: pointer;
                                         clicked => {
+                                            let previous_count = root.custom_palette.length;
                                             root.add_custom_color(root.active_color);
+                                            if (root.custom_palette.length > previous_count) {
+                                                palette_scroll.content-y = min(0px, palette_scroll.height - palette_scroll.content-height);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            palette_scroll := ScrollView {
+                                height: min(76px, palette_canvas.height);
+                                horizontal-scrollbar-policy: always-off;
+                                content-width: self.width - 14px;
+                                content-height: palette_canvas.height;
+                                palette_canvas := Rectangle {
+                                    width: palette_scroll.content-width;
+                                    height: root.custom_palette.length == 0 ? 0px : Math.ceil(root.custom_palette.length / self.columns) * 36px + 4px;
+                                    property <int> columns: max(1, Math.floor((self.width / 1px - 12) / 36));
+                                    for pal_col[i] in root.custom_palette: Rectangle {
+                                        x: 6px + Math.mod(i, palette_canvas.columns) * 36px;
+                                        y: 6px + Math.floor(i / palette_canvas.columns) * 36px;
+                                        width: 28px;
+                                        height: 28px;
+                                        background: transparent;
+
+                                        // Same-color glow aura when active
+                                        if root.active_color == pal_col: Rectangle {
+                                            x: (parent.width - self.width) / 2;
+                                            y: (parent.height - self.height) / 2;
+                                            width: 28px;
+                                            height: 28px;
+                                            border-radius: 14px;
+                                            background: pal_col.transparentize(0.55);
+                                            drop-shadow-blur: 10px;
+                                            drop-shadow-color: pal_col;
+                                        }
+
+                                        // The Color Swatch Circle
+                                        Rectangle {
+                                            x: (parent.width - self.width) / 2;
+                                            y: (parent.height - self.height) / 2;
+                                            width: (root.active_color == pal_col) ? 24px : 20px;
+                                            height: (root.active_color == pal_col) ? 24px : 20px;
+                                            border-radius: self.width / 2;
+                                            background: pal_col;
+                                            drop-shadow-blur: (root.active_color == pal_col) ? 8px : 0px;
+                                            drop-shadow-color: pal_col;
+                                            border-width: (root.active_color == pal_col) ? 2px : 0px;
+                                            border-color: #ffffff;
+                                        }
+
+                                        TouchArea {
+                                            mouse-cursor: pointer;
+                                            clicked => {
+                                                root.select_color_internal(pal_col);
+                                            }
                                         }
                                     }
                                 }
@@ -6023,6 +6100,79 @@ export component PresenterWindow inherits Window {
         }
     }
 
+    // Audience window controls stay on the presenter, outside the shared view.
+    if root.show_audience_menu: Rectangle {
+        width: 100%;
+        height: 100%;
+        TouchArea { clicked => { root.show_audience_menu = false; } }
+        Rectangle {
+            width: min(300px, parent.width - 16px);
+            height: audience_options.preferred-height;
+            x: max(8px, min(parent.width - self.width - 8px, root.audience_menu_anchor_x - self.width));
+            y: max(8px, min(parent.height - self.height - 8px, root.audience_menu_anchor_y + 6px));
+            background: #1c1c1f;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: #2c2c34;
+            drop-shadow-blur: 24px;
+            drop-shadow-color: #000000dd;
+            TouchArea { }
+            audience_options := VerticalLayout {
+                padding: 10px;
+                spacing: 4px;
+                Text {
+                    text: "Audience Window";
+                    color: #f4f4f5;
+                    font-size: 14px;
+                    font-weight: 700;
+                }
+                for option[index] in [
+                    { title: "Hide title bar", hint: "Clean window for screen sharing", checked: root.audience_borderless },
+                    { title: "Always on top", hint: "Keep the audience window above other apps", checked: root.audience_always_on_top },
+                    { title: "Full screen", hint: "Press Esc in the audience window to exit", checked: root.audience_fullscreen },
+                ]: Rectangle {
+                    height: 52px;
+                    border-radius: 8px;
+                    background: audience_option_touch.has-hover ? #2a2a30 : transparent;
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        spacing: 8px;
+                        VerticalLayout {
+                            alignment: center;
+                            spacing: 2px;
+                            Text { text: option.title; color: #f4f4f5; font-size: 13px; font-weight: 600; }
+                            Text { text: option.hint; color: #9ca3af; font-size: 10px; }
+                        }
+                        Text {
+                            text: option.checked ? "✓" : "";
+                            width: 18px;
+                            color: #60a5fa;
+                            font-size: 16px;
+                            vertical-alignment: center;
+                            horizontal-alignment: center;
+                        }
+                    }
+                    audience_option_touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            if (index == 0) { root.set_audience_borderless(!root.audience_borderless); }
+                            else if (index == 1) { root.set_audience_always_on_top(!root.audience_always_on_top); }
+                            else { root.set_audience_fullscreen(!root.audience_fullscreen); }
+                        }
+                    }
+                }
+                Rectangle { height: 1px; background: #34343c; }
+                Text {
+                    text: "Restore the title bar to move or resize.\nCtrl/⌘ + Shift + B toggles the title bar.";
+                    color: #a1a1aa;
+                    font-size: 10px;
+                    wrap: word-wrap;
+                }
+            }
+        }
+    }
+
     // --- SLIDE QUALITY MENU (opened from the quality button in the title bar) ---
     if root.show_quality_menu: Rectangle {
         width: 100%;
@@ -7271,85 +7421,31 @@ export component PresenterWindow inherits Window {
                     }
                 }
 
-                // 4. Quick Actions Row
+                // Quick actions share the same sizing and visual weight.
                 HorizontalLayout {
-                    spacing: 10px;
-
-                    // Export PDF Button
-                    Rectangle {
-                        height: 36px;
-                        horizontal-stretch: 1;
-                        border-radius: 8px;
-                        background: exp_touch.has-hover ? #2e2e36 : #1e1e24;
-                        border-width: 1px;
-                        border-color: #2e2e34;
-
-                        Text {
-                            text: "💾  Export Annotated PDF";
-                            color: #e5e7eb;
-                            font-size: 12px;
-                            font-weight: 600;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                        }
-
-                        exp_touch := TouchArea {
-                            clicked => {
-                                root.show_updates_modal = false;
-                                root.export_pdf();
-                            }
+                    spacing: 8px;
+                    QuickActionButton {
+                        label: "Export PDF";
+                        glyph: @image-url("icons/export_pdf.svg");
+                        clicked => {
+                            root.show_updates_modal = false;
+                            root.export_pdf();
                         }
                     }
-
-                    // Open PDF Button
-                    Rectangle {
-                        height: 36px;
-                        horizontal-stretch: 1;
-                        border-radius: 8px;
-                        background: open_touch.has-hover ? #2e2e36 : #1e1e24;
-                        border-width: 1px;
-                        border-color: #2e2e34;
-
-                        Text {
-                            text: "📂  Open New Presentation";
-                            color: #e5e7eb;
-                            font-size: 12px;
-                            font-weight: 600;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                        }
-
-                        open_touch := TouchArea {
-                            clicked => {
-                                root.show_updates_modal = false;
-                                root.open_pdf();
-                            }
+                    QuickActionButton {
+                        label: "Open presentation";
+                        glyph: @image-url("icons/folder_open.svg");
+                        clicked => {
+                            root.show_updates_modal = false;
+                            root.open_pdf();
                         }
                     }
-
-                    // Reveal in File Manager Button
-                    if root.has_source_file: Rectangle {
-                        height: 36px;
-                        horizontal-stretch: 1;
-                        border-radius: 8px;
-                        background: reveal_modal_touch.has-hover ? #2e2e36 : #1e1e24;
-                        border-width: 1px;
-                        border-color: #3b82f644;
-
-                        Text {
-                            text: "🔍  Reveal in Finder / Directory";
-                            color: #93c5fd;
-                            font-size: 12px;
-                            font-weight: 600;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                        }
-
-                        reveal_modal_touch := TouchArea {
-                            clicked => {
-                                root.show_updates_modal = false;
-                                root.reveal_source_file();
-                            }
+                    if root.has_source_file: QuickActionButton {
+                        label: "Show in folder";
+                        glyph: @image-url("icons/reveal_folder.svg");
+                        clicked => {
+                            root.show_updates_modal = false;
+                            root.reveal_source_file();
                         }
                     }
                 }
@@ -7613,6 +7709,15 @@ export component PresenterWindow inherits Window {
 
 // --- AUDIENCE VIEW (Clean display for Projector / External Monitor) ---
 export component AudienceWindow inherits Window {
+    in-out property <bool> borderless: false;
+    in-out property <bool> keep_on_top: false;
+    in-out property <bool> is_fullscreen: false;
+    no-frame: root.borderless;
+    always-on-top: root.keep_on_top;
+    full-screen <=> root.is_fullscreen;
+    callback exit_fullscreen();
+    callback fullscreen_changed(bool);
+    changed is_fullscreen => { root.fullscreen_changed(root.is_fullscreen); }
     title: "PowerBeamer - Audience View (Projector)";
     icon: @image-url("icons/app_icon.svg");
     min-width: 320px;
@@ -7673,7 +7778,10 @@ export component AudienceWindow inherits Window {
     forward-focus: aud-key-handler;
     aud-key-handler := FocusScope {
         key-pressed(event) => {
-            if (root.key_forward(event.text, event.modifiers.control, event.modifiers.meta, event.modifiers.shift)) {
+            if (event.text == Key.Escape && root.is_fullscreen) {
+                root.exit_fullscreen();
+                accept
+            } else if (root.key_forward(event.text, event.modifiers.control, event.modifiers.meta, event.modifiers.shift)) {
                 accept
             } else {
                 reject

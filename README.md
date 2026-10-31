@@ -97,6 +97,7 @@ Most PDF presenters treat a Beamer deck as a pile of pages. PowerBeamer understa
 ### 🔍 Built for LaTeX Beamer
 - **Automatic dual-screen detection**: recognizes `pgfpages` side-by-side output (aspect ratio ≥ 2.0, e.g. 8:3 or 32:9) and splits audience slide from presenter notes. No flags or config.
 - **Frame vs. overlay navigation**: `J` / `K` jump whole Beamer frames, while arrow keys step through every `\pause` and `\only` overlay.
+- **Audience window options**: right-click the Audience Window button to hide the title bar for window sharing, keep the window on top, or enter full screen. Title-bar and on-top preferences are saved. Use Ctrl/⌘+Shift+B to restore the title bar for moving/resizing, or Escape in the audience window to exit full screen.
 - **Outline / TOC drawer (`O`)** built from the PDF outline, plus a **thumbnail grid (`T`)** where you can also insert, cut, duplicate, rotate and delete pages.
 - **Hold-to-follow hyperlinks**: press and hold an internal PDF link (~0.4 s, with a progress ring) to follow it, so you never jump by accident while inking.
 - **Speaker notes and comments** in a resizable panel, or in a detached window.

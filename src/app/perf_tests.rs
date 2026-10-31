@@ -237,6 +237,16 @@ fn headless_overview_and_activity_timers() {
     slint::platform::update_timers_and_animations();
     assert_eq!(*draws.borrow(), 1);
     check_controls(&context);
+    let had_source = presenter.get_has_source_file();
+    presenter.set_has_source_file(true);
+    presenter.set_show_updates_modal(true);
+    let actions = presenter.window().take_snapshot().unwrap();
+    image::save_buffer("target/perf-results/presentation-actions.png", actions.as_bytes(),
+        actions.width(), actions.height(), image::ColorType::Rgba8).unwrap();
+    presenter.set_show_updates_modal(false);
+    presenter.set_has_source_file(had_source);
+    check_audience_window_options(&context);
+    check_large_color_palette(&context);
     check_hidden_slide_navigation_and_actions(&context);
     // Exercise the real asynchronous open path, not just metadata parsing. A
     // converted companion avoids automating the user's running Office session.
@@ -310,6 +320,277 @@ fn headless_overview_and_activity_timers() {
     assert!((3999..=4000).contains(&size.width));
     assert_eq!(size.height, 2250);
     presenter.hide().unwrap();
+}
+
+fn check_large_color_palette(ctx: &super::context::AppContext) {
+    use slint::platform::{PointerEventButton, WindowEvent};
+    let p = &ctx.presenter_window;
+    let original = ctx.state.borrow().custom_palette.clone();
+    let colors: Vec<_> = (20..140)
+        .map(|r| slint::Color::from_rgb_u8(r, 50, 100))
+        .collect();
+    ctx.state.borrow_mut().custom_palette = (20..140).map(|r| [r, 50, 100, 255]).collect();
+    p.set_custom_palette(Rc::new(slint::VecModel::from(colors)).into());
+    p.set_active_color(slint::Color::from_rgb_u8(255, 255, 255));
+    p.set_active_color_slot(0);
+    p.set_color_tab_index(0);
+    p.set_show_color_popover(true);
+    let snapshot = p.window().take_snapshot().unwrap();
+    let pixels: Vec<_> = snapshot
+        .as_slice()
+        .iter()
+        .enumerate()
+        .filter(|(_, pixel)| (20..140).contains(&pixel.r) && pixel.g == 50 && pixel.b == 100)
+        .map(|(i, _)| {
+            (
+                (i as u32 % snapshot.width()) as f32,
+                (i as u32 / snapshot.width()) as f32,
+            )
+        })
+        .collect();
+    assert!(
+        pixels.len() > 1000,
+        "palette should render its visible swatches"
+    );
+    let min_x = pixels.iter().map(|p| p.0).fold(f32::INFINITY, f32::min);
+    let max_x = pixels.iter().map(|p| p.0).fold(0.0, f32::max);
+    let min_y = pixels.iter().map(|p| p.1).fold(f32::INFINITY, f32::min);
+    let max_y = pixels.iter().map(|p| p.1).fold(0.0, f32::max);
+    assert!(
+        max_x - min_x < 258.0,
+        "saved colors escaped the selector horizontally"
+    );
+    assert!(
+        max_y - min_y < 76.0,
+        "saved colors escaped the scroll viewport vertically"
+    );
+    image::save_buffer(
+        "target/perf-results/color-palette.png",
+        snapshot.as_bytes(),
+        snapshot.width(),
+        snapshot.height(),
+        image::ColorType::Rgba8,
+    )
+    .unwrap();
+    p.window().dispatch_event(WindowEvent::PointerScrolled {
+        position: slint::LogicalPosition::new((min_x + max_x) / 2.0, (min_y + max_y) / 2.0),
+        delta_x: 0.0,
+        delta_y: -10000.0,
+    });
+    let scrolled = p.window().take_snapshot().unwrap();
+    let last = scrolled
+        .as_slice()
+        .iter()
+        .enumerate()
+        .find(|(_, pixel)| pixel.r == 139 && pixel.g == 50 && pixel.b == 100)
+        .map(|(i, _)| {
+            slint::LogicalPosition::new(
+                (i as u32 % scrolled.width()) as f32,
+                (i as u32 / scrolled.width()) as f32,
+            )
+        })
+        .expect("the last saved color must be reachable by scrolling");
+    p.window().dispatch_event(WindowEvent::PointerPressed {
+        position: last,
+        button: PointerEventButton::Left,
+    });
+    p.window().dispatch_event(WindowEvent::PointerReleased {
+        position: last,
+        button: PointerEventButton::Left,
+    });
+    assert_eq!(
+        p.get_active_color(),
+        slint::Color::from_rgb_u8(139, 50, 100)
+    );
+    // Adding a color keeps the + button reachable and reveals the new last row.
+    p.set_active_color(slint::Color::from_rgb_u8(0, 200, 250));
+    let add_position = slint::LogicalPosition::new(min_x + 234.0, min_y - 31.0);
+    p.window().dispatch_event(WindowEvent::PointerPressed {
+        position: add_position,
+        button: PointerEventButton::Left,
+    });
+    p.window().dispatch_event(WindowEvent::PointerReleased {
+        position: add_position,
+        button: PointerEventButton::Left,
+    });
+    assert_eq!(ctx.state.borrow().custom_palette.len(), 121);
+    let added = p.window().take_snapshot().unwrap();
+    assert!(
+        added
+            .as_slice()
+            .iter()
+            .any(|pixel| pixel.r == 0 && pixel.g == 200 && pixel.b == 250),
+        "newly added saved color should be revealed without scrolling manually"
+    );
+    // Minus removes the selected saved entry, preserving the drawing color.
+    let remove_position = slint::LogicalPosition::new(add_position.x - 34.0, add_position.y);
+    p.window().dispatch_event(WindowEvent::PointerPressed {
+        position: remove_position,
+        button: PointerEventButton::Left,
+    });
+    p.window().dispatch_event(WindowEvent::PointerReleased {
+        position: remove_position,
+        button: PointerEventButton::Left,
+    });
+    assert_eq!(ctx.state.borrow().custom_palette.len(), 120);
+    assert!(
+        !ctx.state
+            .borrow()
+            .custom_palette
+            .contains(&[0, 200, 250, 255])
+    );
+    assert_eq!(p.get_active_color(), slint::Color::from_rgb_u8(0, 200, 250));
+    assert!(!p.invoke_palette_contains(p.get_active_color(), p.get_custom_palette()));
+    // A disabled minus is harmless, and removing the last entry allows an empty palette.
+    p.window().dispatch_event(WindowEvent::PointerPressed {
+        position: remove_position,
+        button: PointerEventButton::Left,
+    });
+    p.window().dispatch_event(WindowEvent::PointerReleased {
+        position: remove_position,
+        button: PointerEventButton::Left,
+    });
+    assert_eq!(ctx.state.borrow().custom_palette.len(), 120);
+    let remaining = ctx.state.borrow().custom_palette.clone();
+    for rgba in remaining {
+        p.invoke_remove_custom_color(slint::Color::from_argb_u8(
+            rgba[3], rgba[0], rgba[1], rgba[2],
+        ));
+    }
+    assert!(ctx.state.borrow().custom_palette.is_empty());
+    assert_eq!(
+        ctx.state.borrow().capture_settings().custom_palette,
+        Some(Vec::new())
+    );
+    let save_palette_preview = |name: &str| {
+        let snapshot = p.window().take_snapshot().unwrap();
+        image::save_buffer(name, snapshot.as_bytes(), snapshot.width(), snapshot.height(),
+            image::ColorType::Rgba8).unwrap();
+    };
+    save_palette_preview("target/perf-results/color-palette-empty.png");
+    p.invoke_add_custom_color(p.get_active_color());
+    assert_eq!(ctx.state.borrow().custom_palette, vec![[0, 200, 250, 255]]);
+    save_palette_preview("target/perf-results/color-palette-single.png");
+    p.set_show_color_popover(false);
+    ctx.state.borrow_mut().custom_palette = original;
+    ctx.state.borrow().push_settings_to_ui(p);
+}
+
+fn check_audience_window_options(ctx: &super::context::AppContext) {
+    use slint::platform::{Key, PointerEventButton, WindowEvent};
+    let p = &ctx.presenter_window;
+    let a = &ctx.audience_window;
+    p.set_show_thumbnails(false);
+    p.set_show_panel_menu(false);
+    p.set_show_quality_menu(false);
+    p.set_show_timer_menu(false);
+    p.set_show_toc_drawer(false);
+    if a.window().is_visible() {
+        p.invoke_toggle_audience_window();
+    }
+    let pointer = |x: f32, y: f32, button| {
+        let position = slint::LogicalPosition::new(x, y);
+        p.window()
+            .dispatch_event(WindowEvent::PointerPressed { position, button });
+        p.window()
+            .dispatch_event(WindowEvent::PointerReleased { position, button });
+    };
+    // Find the audience button through actual right-click routing. Other header
+    // buttons have no right-click action; no audience window should open here.
+    let button_x = (1000..1280)
+        .rev()
+        .step_by(8)
+        .find(|&x| {
+            pointer(x as f32, 24.0, PointerEventButton::Right);
+            p.get_show_audience_menu()
+        })
+        .expect("right-click on the audience button must open its options");
+    assert!(!a.window().is_visible());
+    assert!(!p.get_audience_window_open());
+    let menu_x = (p.get_audience_menu_anchor_x() - 300.0).clamp(8.0, 972.0);
+    let menu_y = p.get_audience_menu_anchor_y() + 6.0;
+    pointer(menu_x + 140.0, menu_y + 56.0, PointerEventButton::Left);
+    assert!(p.get_audience_borderless());
+    assert!(a.get_borderless());
+    assert!(ctx.state.borrow().audience_borderless);
+    assert!(
+        !a.window().is_visible(),
+        "editing a preference must not open the window"
+    );
+    pointer(menu_x + 140.0, menu_y + 112.0, PointerEventButton::Left);
+    assert!(p.get_audience_always_on_top());
+    assert!(a.get_keep_on_top());
+    let saved = ctx.state.borrow().capture_settings();
+    let saved: crate::settings::Settings =
+        serde_json::from_str(&serde_json::to_string(&saved).unwrap()).unwrap();
+    let mut restored = super::state::AppState::new();
+    restored.apply_settings(&saved);
+    assert!(restored.audience_borderless);
+    assert!(restored.audience_always_on_top);
+    let legacy: crate::settings::Settings = serde_json::from_str("{}").unwrap();
+    let mut defaults = super::state::AppState::new();
+    defaults.apply_settings(&legacy);
+    assert!(!defaults.audience_borderless);
+    assert!(!defaults.audience_always_on_top);
+
+    let snapshot = p.window().take_snapshot().unwrap();
+    image::save_buffer(
+        "target/perf-results/audience-options.png",
+        snapshot.as_bytes(),
+        snapshot.width(),
+        snapshot.height(),
+        image::ColorType::Rgba8,
+    )
+    .unwrap();
+
+    pointer(menu_x + 140.0, menu_y + 168.0, PointerEventButton::Left);
+    assert!(a.get_is_fullscreen());
+    assert!(p.get_audience_fullscreen());
+    assert!(a.window().is_visible());
+    a.window().dispatch_event(WindowEvent::KeyPressed {
+        text: Key::Escape.into(),
+    });
+    a.window().dispatch_event(WindowEvent::KeyReleased {
+        text: Key::Escape.into(),
+    });
+    assert!(!a.get_is_fullscreen());
+    assert!(!p.get_audience_fullscreen());
+    assert!(
+        a.get_borderless(),
+        "exiting full screen must preserve the sharing preference"
+    );
+
+    // Both the presenter and audience keyboard routes can restore decorations.
+    assert!(p.invoke_handle_key("B".into(), true, false, true));
+    assert!(!a.get_borderless());
+    assert!(a.invoke_key_forward("B".into(), false, true, true));
+    assert!(a.get_borderless());
+    p.invoke_set_audience_borderless(false);
+    p.invoke_set_audience_always_on_top(false);
+    p.invoke_toggle_audience_window();
+    assert!(!a.window().is_visible());
+    p.invoke_toggle_audience_window();
+    assert!(!a.get_borderless());
+    p.invoke_toggle_audience_window();
+
+    let strokes = ctx.state.borrow().deck.current_slide().inking.strokes.len();
+    pointer(16.0, 700.0, PointerEventButton::Left);
+    assert!(!p.get_show_audience_menu());
+    assert_eq!(
+        ctx.state.borrow().deck.current_slide().inking.strokes.len(),
+        strokes
+    );
+    pointer(button_x as f32, 24.0, PointerEventButton::Right);
+    assert!(p.get_show_audience_menu());
+    assert!(p.invoke_handle_key(Key::Escape.into(), false, false, false));
+    assert!(!p.get_show_audience_menu());
+    pointer(button_x as f32, 24.0, PointerEventButton::Left);
+    assert!(
+        a.window().is_visible(),
+        "left click must still toggle the audience window"
+    );
+    pointer(button_x as f32, 24.0, PointerEventButton::Left);
+    assert!(!a.window().is_visible());
 }
 
 fn check_hidden_slide_navigation_and_actions(ctx: &super::context::AppContext) {

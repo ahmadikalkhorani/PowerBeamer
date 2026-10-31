@@ -14,6 +14,79 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
         ..
     } = ctx;
 
+    audience_window.set_borderless(state.borrow().audience_borderless);
+    audience_window.set_keep_on_top(state.borrow().audience_always_on_top);
+    presenter_window.set_audience_borderless(state.borrow().audience_borderless);
+    presenter_window.set_audience_always_on_top(state.borrow().audience_always_on_top);
+
+    {
+        let state = state.clone();
+        let audience = audience_window.as_weak();
+        let presenter = presenter_window.as_weak();
+        presenter_window.on_set_audience_borderless(move |enabled| {
+            state.borrow_mut().audience_borderless = enabled;
+            if let Some(a) = audience.upgrade() {
+                a.set_borderless(enabled);
+            }
+            if let Some(p) = presenter.upgrade() {
+                p.set_audience_borderless(enabled);
+            }
+        });
+    }
+    {
+        let state = state.clone();
+        let audience = audience_window.as_weak();
+        let presenter = presenter_window.as_weak();
+        presenter_window.on_set_audience_always_on_top(move |enabled| {
+            state.borrow_mut().audience_always_on_top = enabled;
+            if let Some(a) = audience.upgrade() {
+                a.set_keep_on_top(enabled);
+            }
+            if let Some(p) = presenter.upgrade() {
+                p.set_audience_always_on_top(enabled);
+            }
+        });
+    }
+    {
+        let audience = audience_window.as_weak();
+        let presenter = presenter_window.as_weak();
+        presenter_window.on_set_audience_fullscreen(move |enabled| {
+            if let (Some(a), Some(p)) = (audience.upgrade(), presenter.upgrade()) {
+                a.set_is_fullscreen(enabled);
+                if enabled && !a.window().is_visible() {
+                    if let Err(error) = a.show() {
+                        a.set_is_fullscreen(false);
+                        p.set_audience_fullscreen(false);
+                        super::ui::show_toast(
+                            &p,
+                            &format!("Couldn't open audience window: {error}"),
+                            true,
+                        );
+                        return;
+                    }
+                    p.set_audience_window_open(true);
+                }
+                p.set_audience_fullscreen(enabled);
+            }
+        });
+    }
+    {
+        let presenter = presenter_window.as_weak();
+        audience_window.on_exit_fullscreen(move || {
+            if let Some(p) = presenter.upgrade() {
+                p.invoke_set_audience_fullscreen(false);
+            }
+        });
+    }
+    {
+        let presenter = presenter_window.as_weak();
+        audience_window.on_fullscreen_changed(move |enabled| {
+            if let Some(p) = presenter.upgrade() {
+                p.set_audience_fullscreen(enabled);
+            }
+        });
+    }
+
     let presenter = presenter_window.as_weak();
     audience_window.window().on_close_requested(move || {
         if let Some(p) = presenter.upgrade() {
