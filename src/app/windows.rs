@@ -19,6 +19,11 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
     presenter_window.set_audience_borderless(state.borrow().audience_borderless);
     presenter_window.set_audience_always_on_top(state.borrow().audience_always_on_top);
 
+    #[cfg(target_os = "macos")]
+    if state.borrow().audience_borderless {
+        apply_macos_audience_titlebar_hidden(&audience_window.window(), true);
+    }
+
     {
         let state = state.clone();
         let audience = audience_window.as_weak();
@@ -27,6 +32,8 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
             state.borrow_mut().audience_borderless = enabled;
             if let Some(a) = audience.upgrade() {
                 a.set_borderless(enabled);
+                #[cfg(target_os = "macos")]
+                apply_macos_audience_titlebar_hidden(&a.window(), enabled);
             }
             if let Some(p) = presenter.upgrade() {
                 p.set_audience_borderless(enabled);
@@ -112,6 +119,10 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                 let is_open = !aud.window().is_visible();
                 if is_open {
                     let _ = aud.show();
+                    #[cfg(target_os = "macos")]
+                    if aud.get_borderless() {
+                        apply_macos_audience_titlebar_hidden(&aud.window(), true);
+                    }
                     println!("Audience Window popped out to separate monitor / display.");
                 } else {
                     let _ = aud.hide();
@@ -290,4 +301,88 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
         },
     );
     vec![sync]
+}
+
+#[cfg(target_os = "macos")]
+fn apply_macos_audience_titlebar_hidden(window: &slint::Window, hidden: bool) {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use std::ffi::{c_char, c_void};
+
+    #[link(name = "AppKit", kind = "framework")]
+    #[link(name = "objc", kind = "dylib")]
+    unsafe extern "C" {
+        fn sel_registerName(name: *const c_char) -> *mut c_void;
+        fn objc_msgSend();
+    }
+
+    if let Ok(handle) = window.window_handle().window_handle() {
+        if let RawWindowHandle::AppKit(appkit_handle) = handle.as_raw() {
+            unsafe {
+                let view_ptr = appkit_handle.ns_view.as_ptr() as *mut c_void;
+                let sel_window = sel_registerName(b"window\0".as_ptr() as *const c_char);
+                let msg_send_window: unsafe extern "C" fn(*mut c_void, *mut c_void) -> *mut c_void =
+                    std::mem::transmute(objc_msgSend as unsafe extern "C" fn());
+                let ns_window = msg_send_window(view_ptr, sel_window);
+                if !ns_window.is_null() {
+                    let sel_style_mask = sel_registerName(b"styleMask\0".as_ptr() as *const c_char);
+                    let sel_set_style_mask = sel_registerName(b"setStyleMask:\0".as_ptr() as *const c_char);
+                    let msg_send_get_mask: unsafe extern "C" fn(*mut c_void, *mut c_void) -> usize =
+                        std::mem::transmute(objc_msgSend as unsafe extern "C" fn());
+                    let msg_send_set_mask: unsafe extern "C" fn(*mut c_void, *mut c_void, usize) =
+                        std::mem::transmute(objc_msgSend as unsafe extern "C" fn());
+
+                    let current_mask = msg_send_get_mask(ns_window, sel_style_mask);
+                    const NS_TITLED: usize = 1 << 0;
+                    const NS_CLOSABLE: usize = 1 << 1;
+                    const NS_MINIATURIZABLE: usize = 1 << 2;
+                    const NS_RESIZABLE: usize = 1 << 3;
+                    const NS_FULLSIZE_CONTENT_VIEW: usize = 1 << 15;
+
+                    let mut target_mask = current_mask | NS_TITLED | NS_CLOSABLE | NS_MINIATURIZABLE | NS_RESIZABLE;
+                    if hidden {
+                        target_mask |= NS_FULLSIZE_CONTENT_VIEW;
+                    } else {
+                        target_mask &= !NS_FULLSIZE_CONTENT_VIEW;
+                    }
+                    msg_send_set_mask(ns_window, sel_set_style_mask, target_mask);
+
+                    let sel_invalidate_shadow = sel_registerName(b"invalidateShadow\0".as_ptr() as *const c_char);
+                    let msg_send_void: unsafe extern "C" fn(*mut c_void, *mut c_void) =
+                        std::mem::transmute(objc_msgSend as unsafe extern "C" fn());
+                    msg_send_void(ns_window, sel_invalidate_shadow);
+
+                    let sel_set_title_vis = sel_registerName(b"setTitleVisibility:\0".as_ptr() as *const c_char);
+                    let msg_send_vis: unsafe extern "C" fn(*mut c_void, *mut c_void, isize) =
+                        std::mem::transmute(objc_msgSend as unsafe extern "C" fn());
+                    // 1 = NSWindowTitleHidden, 0 = NSWindowTitleVisible
+                    msg_send_vis(ns_window, sel_set_title_vis, if hidden { 1 } else { 0 });
+
+                    let sel_set_titlebar_trans = sel_registerName(b"setTitlebarAppearsTransparent:\0".as_ptr() as *const c_char);
+                    let msg_send_bool: unsafe extern "C" fn(*mut c_void, *mut c_void, bool) =
+                        std::mem::transmute(objc_msgSend as unsafe extern "C" fn());
+                    msg_send_bool(ns_window, sel_set_titlebar_trans, hidden);
+
+                    let sel_standard_btn = sel_registerName(b"standardWindowButton:\0".as_ptr() as *const c_char);
+                    let sel_set_hidden = sel_registerName(b"setHidden:\0".as_ptr() as *const c_char);
+                    let msg_send_btn: unsafe extern "C" fn(*mut c_void, *mut c_void, usize) -> *mut c_void =
+                        std::mem::transmute(objc_msgSend as unsafe extern "C" fn());
+
+                    // Hide/show Close (0), Miniaturize (1), Zoom (2) buttons
+                    for btn_type in 0..=2 {
+                        let btn = msg_send_btn(ns_window, sel_standard_btn, btn_type);
+                        if !btn.is_null() {
+                            msg_send_bool(btn, sel_set_hidden, hidden);
+                        }
+                    }
+
+                    // Window remains fully movable by dragging its top bar or header
+                    let sel_set_movable = sel_registerName(b"setMovable:\0".as_ptr() as *const c_char);
+                    msg_send_bool(ns_window, sel_set_movable, true);
+
+                    let sel_set_movable_bg = sel_registerName(b"setMovableByWindowBackground:\0".as_ptr() as *const c_char);
+                    msg_send_bool(ns_window, sel_set_movable_bg, false);
+                }
+            }
+        }
+    }
 }

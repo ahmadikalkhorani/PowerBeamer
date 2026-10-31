@@ -7712,7 +7712,6 @@ export component AudienceWindow inherits Window {
     in-out property <bool> borderless: false;
     in-out property <bool> keep_on_top: false;
     in-out property <bool> is_fullscreen: false;
-    no-frame: root.borderless;
     always-on-top: root.keep_on_top;
     full-screen <=> root.is_fullscreen;
     callback exit_fullscreen();
@@ -7962,6 +7961,14 @@ export component AudienceWindow inherits Window {
             height: 100%;
             background: #ffffff;
         }
+    }
+
+    // Top hidden drag bar to move audience window when title bar is hidden
+    if root.borderless && !root.is_fullscreen: WindowMoveArea {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 32px;
     }
 }
 

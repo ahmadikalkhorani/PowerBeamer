@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -e
 
+killall -9 powerbeamer 2>/dev/null || true
+
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$DIR"
 
@@ -73,3 +75,7 @@ EOF
 codesign --force --deep --sign - "$APP_DIR"
 
 echo "Created $APP_DIR successfully!"
+
+rm -rf /Applications/PowerBeamer.app
+cp -R target/PowerBeamer.app /Applications/
+open /Applications/PowerBeamer.app --args "$PWD/test_deck/presentation.pdf"
