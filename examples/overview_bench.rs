@@ -53,6 +53,7 @@ fn main() {
             (1..=2000)
                 .map(|index| SlideThumbnail {
                     index,
+                    is_hidden: false,
                     image: image.clone(),
                 })
                 .collect::<Vec<_>>(),
