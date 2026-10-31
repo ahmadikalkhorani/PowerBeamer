@@ -1460,7 +1460,7 @@ export component PresenterWindow inherits Window {
                         if touch-reveal.has-hover: Rectangle {
                             width: reveal_tooltip_layout.preferred-width;
                             height: reveal_tooltip_layout.preferred-height;
-                            x: (parent.width - self.width) / 2;
+                            x: 0px;
                             y: 34px;
                             border-radius: 6px;
                             background: #141416f5;
@@ -7771,6 +7771,7 @@ export component AudienceWindow inherits Window {
     callback canvas_pointer_down(float, float, float);
     callback canvas_pointer_move(float, float, float);
     callback canvas_pointer_up();
+    callback start_native_window_drag();
     // Keyboard shortcuts typed while this window has focus go to the presenter's handler
     callback key_forward(string, bool, bool, bool) -> bool;
 
@@ -7968,7 +7969,17 @@ export component AudienceWindow inherits Window {
         x: 0px;
         y: 0px;
         width: 100%;
-        height: 32px;
+        height: 36px;
+
+        TouchArea {
+            width: 100%;
+            height: 100%;
+            pointer-event(event) => {
+                if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                    root.start_native_window_drag();
+                }
+            }
+        }
     }
 }
 

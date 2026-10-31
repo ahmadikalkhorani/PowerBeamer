@@ -25,6 +25,16 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
     }
 
     {
+        let audience_win = audience_window.as_weak();
+        audience_window.on_start_native_window_drag(move || {
+            #[cfg(target_os = "macos")]
+            if let Some(aud) = audience_win.upgrade() {
+                perform_macos_window_drag(&aud.window());
+            }
+        });
+    }
+
+    {
         let state = state.clone();
         let audience = audience_window.as_weak();
         let presenter = presenter_window.as_weak();
@@ -303,6 +313,49 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
     vec![sync]
 }
 
+#[cfg(target_os = "macos")]
+fn perform_macos_window_drag(window: &slint::Window) {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use std::ffi::{c_char, c_void};
+
+    #[link(name = "AppKit", kind = "framework")]
+    #[link(name = "objc", kind = "dylib")]
+    unsafe extern "C" {
+        fn objc_getClass(name: *const c_char) -> *mut c_void;
+        fn sel_registerName(name: *const c_char) -> *mut c_void;
+        fn objc_msgSend();
+    }
+
+    if let Ok(handle) = window.window_handle().window_handle() {
+        if let RawWindowHandle::AppKit(appkit_handle) = handle.as_raw() {
+            unsafe {
+                let view_ptr = appkit_handle.ns_view.as_ptr() as *mut c_void;
+                let sel_window = sel_registerName(b"window\0".as_ptr() as *const c_char);
+                let msg_send_window: unsafe extern "C" fn(*mut c_void, *mut c_void) -> *mut c_void =
+                    std::mem::transmute(objc_msgSend as unsafe extern "C" fn());
+                let ns_window = msg_send_window(view_ptr, sel_window);
+                if !ns_window.is_null() {
+                    let cls_app = objc_getClass(b"NSApplication\0".as_ptr() as *const c_char);
+                    let sel_shared_app = sel_registerName(b"sharedApplication\0".as_ptr() as *const c_char);
+                    let sel_current_event = sel_registerName(b"currentEvent\0".as_ptr() as *const c_char);
+                    let msg_send_ptr: unsafe extern "C" fn(*mut c_void, *mut c_void) -> *mut c_void =
+                        std::mem::transmute(objc_msgSend as unsafe extern "C" fn());
+
+                    let app = msg_send_ptr(cls_app, sel_shared_app);
+                    if !app.is_null() {
+                        let event = msg_send_ptr(app, sel_current_event);
+                        if !event.is_null() {
+                            let sel_drag = sel_registerName(b"performWindowDragWithEvent:\0".as_ptr() as *const c_char);
+                            let msg_send_drag: unsafe extern "C" fn(*mut c_void, *mut c_void, *mut c_void) =
+                                std::mem::transmute(objc_msgSend as unsafe extern "C" fn());
+                            msg_send_drag(ns_window, sel_drag, event);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 #[cfg(target_os = "macos")]
 fn apply_macos_audience_titlebar_hidden(window: &slint::Window, hidden: bool) {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
