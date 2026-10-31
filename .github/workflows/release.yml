@@ -195,15 +195,19 @@ jobs:
             Copy-Item "target/x86_64-pc-windows-msvc/release/presenter.exe" target/win_pkg/powerbeamer.exe
           }
           Copy-Item bin/pdfium.dll target/win_pkg/
-          if (Test-Path "ui/icons/app_icon.ico") {
-            Copy-Item ui/icons/app_icon.ico target/win_pkg/
+          if (!(Test-Path "ui/icons/app_icon.ico")) {
+            throw "Windows icon is missing. Run scripts/generate_icons.sh with Pillow installed and commit ui/icons/app_icon.ico."
           }
+          Copy-Item ui/icons/app_icon.ico target/win_pkg/
           Copy-Item ui/icons/app_icon.png target/win_pkg/
           Copy-Item README.md target/win_pkg/
           Copy-Item LICENSE target/win_pkg/
           
           # Build NSIS Setup Installer (.exe)
           makensis scripts/installer.nsi
+          if ($LASTEXITCODE -ne 0) {
+            throw "NSIS installer compilation failed (exit code $LASTEXITCODE)."
+          }
           Move-Item scripts/PowerBeamer-windows-x86_64-setup.exe .
 
           # Also create a portable .zip
