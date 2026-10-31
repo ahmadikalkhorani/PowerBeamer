@@ -155,6 +155,7 @@ pub(crate) struct AppState {
     pub(crate) timer_warn_min: i32,
     pub(crate) timer_flash_overtime: bool,
     pub(crate) timer_show_clock: bool,
+    pub(crate) notes_font_size: i32,
     pub(crate) timer_size: i32, // 0: S, 1: M, 2: L
     pub(crate) timer_start_on_advance: bool,
     // Slide the timer is waiting to leave before it starts (start-on-first-advance)
@@ -261,6 +262,7 @@ impl AppState {
             timer_warn_min: Some(self.timer_warn_min),
             timer_flash_overtime: Some(self.timer_flash_overtime),
             timer_show_clock: Some(self.timer_show_clock),
+            notes_font_size: Some(self.notes_font_size),
             timer_size: Some(self.timer_size),
             timer_start_on_advance: Some(self.timer_start_on_advance),
             media_track_fps_mode: Some(self.media_track_fps_mode),
@@ -272,7 +274,9 @@ impl AppState {
     }
 
     pub(crate) fn apply_settings(&mut self, s: &Settings) {
-        if let Some(width) = s.stroke_width { self.pen_stroke_width = width; }
+        if let Some(width) = s.stroke_width {
+            self.pen_stroke_width = width;
+        }
         macro_rules! set {
             ($($field:ident),*) => { $( if let Some(v) = s.$field.clone() { self.$field = v; } )* };
         }
@@ -304,6 +308,7 @@ impl AppState {
             timer_warn_min,
             timer_flash_overtime,
             timer_show_clock,
+            notes_font_size,
             timer_size,
             timer_start_on_advance,
             media_track_fps_mode,
@@ -398,6 +403,7 @@ impl AppState {
         p.set_timer_warn_min(self.timer_warn_min);
         p.set_timer_flash_overtime(self.timer_flash_overtime);
         p.set_timer_show_clock(self.timer_show_clock);
+        p.set_notes_font_size(self.notes_font_size.clamp(8, 48));
         p.set_timer_size(self.timer_size);
         p.set_timer_start_on_advance(self.timer_start_on_advance);
         p.set_media_track_fps_mode(self.media_track_fps_mode);
@@ -564,6 +570,7 @@ impl AppState {
             timer_warn_min: 5,
             timer_flash_overtime: true,
             timer_show_clock: false,
+            notes_font_size: 14,
             timer_size: 0,
             timer_start_on_advance: false,
             timer_armed_at_slide: None,

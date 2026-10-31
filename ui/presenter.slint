@@ -1,5 +1,92 @@
 import { ScrollView } from "std-widgets.slint";
 
+component PanelButton inherits Rectangle {
+    in property <string> label;
+    callback clicked();
+    width: 26px; height: 24px;
+    border-radius: 4px;
+    background: touch.has-hover ? #374151 : #27272a;
+    Text { text: root.label; color: #e5e7eb; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; }
+    touch := TouchArea { clicked => { root.clicked(); } }
+}
+component PanelToggle inherits Rectangle {
+    in property <string> label;
+    in property <bool> active;
+    callback toggled();
+    height: 24px; horizontal-stretch: 1;
+    background: root.active ? #1e3a5f : #27272a;
+    border-radius: 4px;
+    Text { text: (root.active ? "✓ " : "") + root.label; color: #e5e7eb; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+    TouchArea { clicked => { root.toggled(); } }
+}
+// Capture the pointer in window coordinates so moving the handle itself cannot
+// feed back into the drag. Only the two neighbouring panels exchange space.
+component PanelResizeHandle inherits Rectangle {
+    in property <float> before-weight;
+    in property <float> after-weight;
+    in property <length> space-per-weight;
+    property <length> press-y;
+    property <float> initial-before;
+    property <float> initial-after;
+    callback resize(float, float);
+    height: 10px;
+    Rectangle {
+        x: (parent.width - self.width) / 2; y: 3px;
+        width: 44px; height: 4px; border-radius: 2px;
+        background: drag.has-hover || drag.pressed ? #60a5fa : #52525b;
+    }
+    drag := TouchArea {
+        mouse-cursor: row-resize;
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                root.press-y = self.absolute-position.y + self.mouse-y;
+                root.initial-before = root.before-weight;
+                root.initial-after = root.after-weight;
+            }
+        }
+        moved => {
+            if self.pressed {
+                let delta = (self.absolute-position.y + self.mouse-y - root.press-y) / max(1px, root.space-per-weight);
+                let before = max(0.001, min(root.initial-before + root.initial-after - 0.001, root.initial-before + delta));
+                root.resize(before, root.initial-before + root.initial-after - before);
+            }
+        }
+    }
+}
+component FontControls inherits HorizontalLayout {
+    in property <int> size;
+    callback resize(int);
+    alignment: end; spacing: 4px;
+    PanelButton { label: "−"; clicked => { root.resize(max(8, root.size - 1)); } }
+    Text { text: "Aa " + root.size; color: #a1a1aa; font-size: 12px; vertical-alignment: center; }
+    PanelButton { label: "+"; clicked => { root.resize(min(48, root.size + 1)); } }
+}
+component PreviewPanel inherits Rectangle {
+    in property <string> heading;
+    in property <image> picture;
+    callback detach();
+    background: #121214; border-radius: 6px;
+    min-height: 48px;
+    VerticalLayout {
+        padding: 4px; spacing: 4px;
+        HorizontalLayout {
+            Text { text: root.heading; color: #93c5fd; font-size: 10px; vertical-alignment: center; overflow: elide; }
+            PanelButton { label: "↗"; clicked => { root.detach(); } }
+        }
+        Rectangle { vertical-stretch: 1; clip: true;
+            Image { width: 100%; height: 100%; source: root.picture; image-fit: contain; }
+        }
+    }
+}
+export component PreviewWindow inherits Window {
+    in-out property <string> heading;
+    in-out property <image> picture;
+    title: "PowerBeamer — " + root.heading;
+    preferred-width: 480px; preferred-height: 320px; min-width: 160px; min-height: 100px;
+    background: #121214;
+    Image { width: 100%; height: 100%; source: root.picture; image-fit: contain; }
+}
+
 export enum ActiveTool {
     Thumbnails,
     Pen,
@@ -632,9 +719,21 @@ export component PresenterWindow inherits Window {
     in-out property <float> laser_y: 0.5;
     in-out property <string> render_quality: "Ultra Vector (600 DPI)";
     in-out property <bool> audience_window_open: false;
+    in-out property <int> notes_font_size: 14;
+    callback resize_notes_font(int);
+    callback toggle_preview_window(int);
+    in-out property <bool> next_detached: false;
+    in-out property <bool> beamer_detached: false;
+    in-out property <bool> show_next_panel: true;
+    in-out property <bool> show_beamer_panel: true;
+    in-out property <bool> show_text_panel: true;
     in-out property <bool> notes_window_open: false;
     in-out property <bool> notes_drawer_open: false;
     in-out property <float> notes_split_ratio: 0.32; // Fraction of workspace width allocated to notes panel (0.15 - 0.70)
+    in-out property <float> next_panel_weight: 0.30;
+    in-out property <float> beamer_panel_weight: 0.30;
+    in-out property <float> text_panel_weight: 0.40;
+    in-out property <bool> show_panel_menu: false;
     in-out property <float> note_preview_ratio: 0.30; // Fraction of drawer height allocated to note slide preview (0.15 - 0.70)
     in-out property <bool> show_thumbnails: false;
     in-out property <[SlideThumbnail]> slide_thumbnails: [];
@@ -5665,18 +5764,29 @@ export component PresenterWindow inherits Window {
                 border-width: 1px;
                 border-color: #27272b;
 
-                VerticalLayout {
+                drawer_layout := VerticalLayout {
                     padding: 12px;
                     spacing: 10px;
 
                     HorizontalLayout {
-                        alignment: space-between;
+                        spacing: 6px;
                         Text {
+                            horizontal-stretch: 1;
+                            overflow: elide;
                             text: "SPEAKER NOTES & CONTROLS";
                             color: #9ca3af;
                             font-size: 11px;
                             font-weight: 700;
                             vertical-alignment: center;
+                        }
+                        Rectangle {
+                            width: 26px; height: 24px; border-radius: 4px;
+                            background: menu_touch.has-hover || root.show_panel_menu ? #374151 : #27272a;
+                            for offset in [6px, 11px, 16px]: Rectangle {
+                                x: 6px; y: offset; width: 14px; height: 2px;
+                                background: #e5e7eb;
+                            }
+                            menu_touch := TouchArea { clicked => { root.show_panel_menu = !root.show_panel_menu; } }
                         }
                         Rectangle {
                             width: 20px;
@@ -5697,108 +5807,54 @@ export component PresenterWindow inherits Window {
                     }
 
 
-                    // Visual Preview Section: Dual-Screen Beamer Note Slide or Next Slide Preview
-                    preview_box := Rectangle {
-                        vertical-stretch: max(15, Math.round(root.note_preview_ratio * 100));
-                        min-height: 80px;
-                        background: #121214;
-                        border-radius: 6px;
-                        border-width: 1px;
-                        border-color: #27272a;
-                        clip: true;
-
-                        VerticalLayout {
-                            padding: 4px;
-                            spacing: 4px;
-
-                            HorizontalLayout {
-                                alignment: space-between;
-                                padding-left: 6px;
-                                padding-right: 6px;
-                                padding-top: 2px;
-
-                                Text {
-                                    text: root.has_notes_image 
-                                        ? (root.is_dual_screen ? "📐 DUAL-SCREEN NOTE SLIDE (pgfpages)" : "📝 PRESENTER SPEAKER NOTE")
-                                        : (root.current_slide < root.total_slides ? "⏭ NEXT SLIDE PREVIEW" 
-                                        : (root.is_end_of_show ? "◼ END OF SHOW" : "⏭ NEXT: BLACK SCREEN"));
-                                    font-size: 10px;
-                                    font-weight: 700;
-                                    color: root.has_notes_image ? #34d399 : (root.current_slide < root.total_slides ? #93c5fd : #f87171);
-                                }
-
-                                if root.has_notes_image: Rectangle {
-                                    height: 16px;
-                                    border-radius: 3px;
-                                    background: #064e3b;
-                                    HorizontalLayout {
-                                        padding-left: 6px;
-                                        padding-right: 6px;
-                                        Text {
-                                            text: root.is_dual_screen ? "32:9 Split" : "Note Page";
-                                            font-size: 9px;
-                                            font-weight: 700;
-                                            color: #6ee7b7;
-                                            vertical-alignment: center;
-                                         }
-                                     }
-                                 }
-                            }
-
-                            Rectangle {
-                                vertical-stretch: 1;
-                                clip: true;
-                                Image {
-                                    width: 100%;
-                                    height: 100%;
-                                    source: root.has_notes_image ? root.notes_slide_image : (root.current_slide < root.total_slides ? root.next_slide_image : (root.is_end_of_show ? root.current_slide_image : root.next_slide_image));
-                                    image-fit: contain;
-                                }
+                    panels := Rectangle {
+                        vertical-stretch: 1;
+                        property <bool> next-on: root.show_next_panel && !root.next_detached;
+                        property <bool> beamer-on: root.show_beamer_panel && !root.beamer_detached;
+                        property <bool> text-on: root.show_text_panel && !root.notes_window_open;
+                        property <int> count: (self.next-on ? 1 : 0) + (self.beamer-on ? 1 : 0) + (self.text-on ? 1 : 0);
+                        property <float> total-weight: (self.next-on ? root.next_panel_weight : 0) + (self.beamer-on ? root.beamer_panel_weight : 0) + (self.text-on ? root.text_panel_weight : 0);
+                        property <length> base-preview: min(48px, self.height / max(1, self.count) / 2);
+                        property <length> base-text: min(140px, self.height / max(1, self.count) / 2);
+                        property <length> space-per-weight: max(0px, self.height - (self.next-on ? self.base-preview : 0px) - (self.beamer-on ? self.base-preview : 0px) - (self.text-on ? self.base-text : 0px) - max(0, self.count - 1) * 10px) / max(0.001, self.total-weight);
+                        property <length> next-height: self.next-on ? self.base-preview + self.space-per-weight * root.next_panel_weight : 0px;
+                        property <length> beamer-y: self.next-height + (self.next-on && (self.beamer-on || self.text-on) ? 10px : 0px);
+                        property <length> beamer-height: self.beamer-on ? self.base-preview + self.space-per-weight * root.beamer_panel_weight : 0px;
+                        property <length> text-y: self.beamer-y + self.beamer-height + (self.beamer-on && self.text-on ? 10px : 0px);
+                        if panels.next-on: PreviewPanel {
+                            y: 0px;
+                            width: parent.width; height: panels.next-height; min-height: 0px;
+                            heading: "NEXT SLIDE"; picture: root.next_slide_image;
+                            detach => { root.toggle_preview_window(0); }
+                        }
+                        if panels.next-on && (panels.beamer-on || panels.text-on): PanelResizeHandle {
+                            y: panels.next-height; width: parent.width;
+                            before-weight: root.next_panel_weight;
+                            after-weight: panels.beamer-on ? root.beamer_panel_weight : root.text_panel_weight;
+                            space-per-weight: panels.space-per-weight;
+                            resize(before, after) => {
+                                root.next_panel_weight = before;
+                                if panels.beamer-on { root.beamer_panel_weight = after; }
+                                else { root.text_panel_weight = after; }
                             }
                         }
-                    }
-
-                    // Draggable Horizontal Splitter Slider between Note Preview and Speaker Notes
-                    Rectangle {
-                        height: 12px;
-                        background: h_splitter_touch.has-hover ? #2563eb22 : transparent;
-                        border-radius: 4px;
-
-                        // Center line
-                        Rectangle {
-                            height: 2px;
-                            width: 100%;
-                            y: 5px;
-                            background: h_splitter_touch.has-hover ? #3b82f6 : #27272a;
+                        if panels.beamer-on: PreviewPanel {
+                            y: panels.beamer-y; width: parent.width; height: panels.beamer-height; min-height: 0px;
+                            heading: root.has_notes_image ? "PRESENTER SPEAKER NOTE" : "BEAMER NOTES — unavailable";
+                            picture: root.notes_slide_image;
+                            detach => { root.toggle_preview_window(1); }
                         }
-
-                        // Grab handle in the center
-                        Rectangle {
-                            width: 44px;
-                            height: 4px;
-                            y: 4px;
-                            x: (parent.width - self.width) / 2;
-                            border-radius: 2px;
-                            background: h_splitter_touch.has-hover ? #60a5fa : #52525b;
+                        if panels.beamer-on && panels.text-on: PanelResizeHandle {
+                            y: panels.beamer-y + panels.beamer-height; width: parent.width;
+                            before-weight: root.beamer_panel_weight; after-weight: root.text_panel_weight;
+                            space-per-weight: panels.space-per-weight;
+                            resize(before, after) => { root.beamer_panel_weight = before; root.text_panel_weight = after; }
                         }
-
-                        h_splitter_touch := TouchArea {
-                            mouse-cursor: row-resize;
-                            moved => {
-                                if (self.pressed) {
-                                    let total_h = max(200px, preview_box.height + comments_box.height);
-                                    let current_mouse_h = preview_box.height + self.mouse-y;
-                                    let new_ratio = max(0.15, min(0.70, (current_mouse_h / 1px) / (total_h / 1px)));
-                                    root.note_preview_ratio = new_ratio;
-                                }
-                            }
-                        }
-                    }
-
                     // Interactive Comments & Speaker Notes Section
-                    comments_box := Rectangle {
-                        vertical-stretch: max(25, Math.round((1.0 - root.note_preview_ratio) * 100));
-                        min-height: 120px;
+                    if panels.text-on: Rectangle {
+                        y: panels.text-y; width: parent.width;
+                        height: max(0px, panels.height - panels.text-y);
+                        clip: true;
                         background: #141416;
                         border-radius: 6px;
                         border-width: 1px;
@@ -5813,16 +5869,17 @@ export component PresenterWindow inherits Window {
                                 alignment: space-between;
 
                                 Text {
-                                    text: "SPEAKER COMMENTS & NOTES";
+                                    text: "EXTRACTED TEXT & COMMENTS";
                                     font-size: 10px;
                                     font-weight: 700;
                                     color: #a1a1aa;
                                     vertical-alignment: center;
                                 }
 
+                                PanelButton { label: "↗"; clicked => { root.toggle_notes_window(); } }
+                            }
                                 HorizontalLayout {
                                     spacing: 4px;
-
                                     // + Bullet button
                                     Rectangle {
                                         height: 20px;
@@ -5892,7 +5949,6 @@ export component PresenterWindow inherits Window {
                                         }
                                     }
                                 }
-                            }
 
                             // Editable Comment Box
                             Rectangle {
@@ -5911,7 +5967,7 @@ export component PresenterWindow inherits Window {
                                             changed has-focus => { root.notes_editor_focused = self.has-focus; }
                                             text: root.notes_text;
                                             color: #f3f4f6;
-                                            font-size: 13px;
+                                            font-size: root.notes_font_size * 1px;
                                             wrap: word-wrap;
                                             edited => {
                                                 root.notes_text = self.text;
@@ -5929,27 +5985,21 @@ export component PresenterWindow inherits Window {
                                     font-size: 12px;
                                 }
                             }
+                            FontControls { size: root.notes_font_size; resize(value) => { root.resize_notes_font(value); } }
                         }
                     }
-
-                    // Pop out independent Notes Window button
-                    Rectangle {
-                        height: 32px;
-                        background: #2563eb;
-                        border-radius: 6px;
-
-                        Text {
-                            text: "📝 Detach to Separate Window";
-                            color: #ffffff;
-                            font-size: 12px;
-                            font-weight: 600;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                        }
-
-                        TouchArea {
-                            clicked => { root.toggle_notes_window(); }
-                        }
+                    } // panels
+                }
+                if root.show_panel_menu: Rectangle {
+                    x: max(12px, parent.width - self.width - 12px); y: 42px;
+                    width: 210px; height: 112px;
+                    background: #202026; border-radius: 6px;
+                    border-width: 1px; border-color: #52525b;
+                    VerticalLayout {
+                        padding: 8px; spacing: 6px;
+                        PanelToggle { label: "Next slide"; active: root.show_next_panel; toggled => { root.show_next_panel = !root.show_next_panel; } }
+                        PanelToggle { label: "Beamer speaker notes"; active: root.show_beamer_panel; toggled => { root.show_beamer_panel = !root.show_beamer_panel; } }
+                        PanelToggle { label: "Extracted text & comments"; active: root.show_text_panel; toggled => { root.show_text_panel = !root.show_text_panel; } }
                     }
                 }
             }
@@ -7795,7 +7845,9 @@ export component NotesWindow inherits Window {
     title: "PowerBeamer - Speaker Notes (Detached)";
     icon: @image-url("icons/app_icon.svg");
     min-width: 280px;
-    min-height: 300px;
+    min-height: 220px;
+    preferred-width: 420px;
+    preferred-height: 500px;
     background: #18181b;
 
     in-out property <int> slide_num: 1;
@@ -7807,6 +7859,8 @@ export component NotesWindow inherits Window {
     in-out property <bool> is_dual_screen: false;
     in-out property <image> notes_slide_image;
     in-out property <float> note_preview_ratio: 0.32;
+    in-out property <int> notes_font_size: 14;
+    callback resize_notes_font(int);
     callback update_slide_notes(int, string);
 
     VerticalLayout {
@@ -7829,101 +7883,6 @@ export component NotesWindow inherits Window {
             }
         }
 
-        // Preview Section: Dual-Screen Note Slide or Mini Slide Preview
-        detached_preview_box := Rectangle {
-            vertical-stretch: max(15, Math.round(root.note_preview_ratio * 100));
-            min-height: 90px;
-            background: #09090b;
-            border-radius: 8px;
-            border-width: 1px;
-            border-color: #27272a;
-            clip: true;
-
-            VerticalLayout {
-                padding: 4px;
-                spacing: 4px;
-
-                HorizontalLayout {
-                    alignment: space-between;
-                    padding-left: 8px;
-                    padding-right: 8px;
-                    padding-top: 4px;
-
-                    Text {
-                        text: root.has_notes_image 
-                            ? (root.is_dual_screen ? "📐 DUAL-SCREEN NOTE SLIDE (pgfpages)" : "📝 PRESENTER SPEAKER NOTE")
-                            : "🖼 AUDIENCE SLIDE PREVIEW";
-                        font-size: 11px;
-                        font-weight: 700;
-                        color: root.has_notes_image ? #34d399 : #93c5fd;
-                    }
-
-                    if root.has_notes_image: Rectangle {
-                        height: 18px;
-                        border-radius: 4px;
-                        background: #064e3b;
-                        HorizontalLayout {
-                            padding-left: 6px;
-                            padding-right: 6px;
-                            Text {
-                                text: root.is_dual_screen ? "32:9 Split" : "Note Page";
-                                font-size: 9px;
-                                font-weight: 700;
-                                color: #6ee7b7;
-                                vertical-alignment: center;
-                            }
-                        }
-                    }
-                }
-
-                Rectangle {
-                    vertical-stretch: 1;
-                    clip: true;
-                    Image {
-                        width: 100%;
-                        height: 100%;
-                        source: root.has_notes_image ? root.notes_slide_image : root.mini_slide;
-                        image-fit: contain;
-                    }
-                }
-            }
-        }
-
-        // Draggable Horizontal Splitter Slider between Note Preview and Speaker Notes
-        Rectangle {
-            height: 12px;
-            background: detached_h_splitter_touch.has-hover ? #2563eb22 : transparent;
-            border-radius: 4px;
-
-            Rectangle {
-                height: 2px;
-                width: 100%;
-                y: 5px;
-                background: detached_h_splitter_touch.has-hover ? #3b82f6 : #27272a;
-            }
-
-            Rectangle {
-                width: 44px;
-                height: 4px;
-                y: 4px;
-                x: (parent.width - self.width) / 2;
-                border-radius: 2px;
-                background: detached_h_splitter_touch.has-hover ? #60a5fa : #52525b;
-            }
-
-            detached_h_splitter_touch := TouchArea {
-                mouse-cursor: row-resize;
-                moved => {
-                    if (self.pressed) {
-                        let total_h = max(200px, detached_preview_box.height + detached_comments_box.height);
-                        let current_mouse_h = detached_preview_box.height + self.mouse-y;
-                        let new_ratio = max(0.15, min(0.70, (current_mouse_h / 1px) / (total_h / 1px)));
-                        root.note_preview_ratio = new_ratio;
-                    }
-                }
-            }
-        }
-
         // Interactive Notes and Comments Area
         detached_comments_box := Rectangle {
             vertical-stretch: max(25, Math.round((1.0 - root.note_preview_ratio) * 100));
@@ -7940,13 +7899,14 @@ export component NotesWindow inherits Window {
                 HorizontalLayout {
                     alignment: space-between;
                     Text {
-                        text: "SPEAKER COMMENTS & NOTES";
+                        text: "EXTRACTED TEXT & COMMENTS";
                         color: #9ca3af;
                         font-size: 11px;
                         font-weight: 700;
                         vertical-alignment: center;
                     }
 
+                }
                     HorizontalLayout {
                         spacing: 6px;
 
@@ -8016,7 +7976,6 @@ export component NotesWindow inherits Window {
                             }
                         }
                     }
-                }
 
                 Rectangle {
                     vertical-stretch: 1;
@@ -8033,7 +7992,7 @@ export component NotesWindow inherits Window {
                             detached_input := TextInput {
                                 text: root.notes_body;
                                 color: #ffffff;
-                                font-size: 14px;
+                                font-size: root.notes_font_size * 1px;
                                 wrap: word-wrap;
                                 edited => {
                                     root.notes_body = self.text;
@@ -8051,6 +8010,7 @@ export component NotesWindow inherits Window {
                         font-size: 13px;
                     }
                 }
+                FontControls { size: root.notes_font_size; resize(value) => { root.resize_notes_font(value); } }
             }
         }
     }

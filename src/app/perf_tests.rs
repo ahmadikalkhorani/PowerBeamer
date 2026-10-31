@@ -472,12 +472,107 @@ fn check_controls(ctx: &super::context::AppContext) {
     p.invoke_timer_options_changed();
     assert_eq!(state.borrow().timer_duration_min, 20);
     assert_eq!(state.borrow().timer_warn_min, 3);
+    p.invoke_resize_notes_font(20);
+    assert_eq!(p.get_notes_font_size(), 20);
+    assert_eq!(ctx.notes_window.get_notes_font_size(), 20);
+    let saved = state.borrow().capture_settings();
+    assert_eq!(saved.notes_font_size, Some(20));
+    let mut restored = crate::app::state::AppState::new();
+    restored.apply_settings(&saved);
+    assert_eq!(restored.notes_font_size, 20);
+    ctx.notes_window.invoke_resize_notes_font(100);
+    assert_eq!(p.get_notes_font_size(), 48);
+    ctx.notes_window.invoke_resize_notes_font(1);
+    assert_eq!(p.get_notes_font_size(), 8);
+    p.invoke_resize_notes_font(14);
+    p.invoke_toggle_preview_window(0);
+    assert!(p.get_next_detached());
+    assert!(!p.get_beamer_detached());
+    p.invoke_toggle_preview_window(1);
+    assert!(p.get_beamer_detached());
+    p.invoke_toggle_preview_window(0);
+    p.invoke_toggle_preview_window(1);
+    assert!(!p.get_next_detached());
+    assert!(!p.get_beamer_detached());
     let slide = p.get_current_slide();
     p.invoke_update_slide_notes(slide, "edited presenter notes".into());
     assert_eq!(ctx.notes_window.get_notes_body(), "edited presenter notes");
     ctx.notes_window
         .invoke_update_slide_notes(slide, "edited detached notes".into());
     assert_eq!(p.get_notes_text(), "edited detached notes");
+    p.set_show_thumbnails(false);
+    p.set_notes_drawer_open(true);
+    let snapshot = p.window().take_snapshot().unwrap();
+    // Find both divider grips in the rendered sidebar and drag them through
+    // Slint's real pointer routing. Each drag must leave the third panel alone.
+    let grips: Vec<_> = (0..snapshot.height())
+        .filter_map(|y| {
+            let xs: Vec<_> = (snapshot.width() * 3 / 4..snapshot.width())
+                .filter(|&x| {
+                    let pixel = snapshot.as_slice()[(y * snapshot.width() + x) as usize];
+                    pixel.r == 82 && pixel.g == 82 && pixel.b == 91
+                })
+                .collect();
+            (xs.len() >= 40 && xs.len() <= 44).then(|| (xs[xs.len() / 2], y))
+        })
+        .collect();
+    let mut rows = Vec::new();
+    for (x, y) in grips {
+        if rows.last().is_none_or(|&(_, previous)| y > previous + 4) {
+            rows.push((x, y));
+        }
+    }
+    assert_eq!(rows.len(), 2, "expected two independent resize handles");
+    let drag = |x: u32, y: u32, dy: f32| {
+        let position = slint::LogicalPosition::new(x as f32, y as f32);
+        p.window()
+            .dispatch_event(WindowEvent::PointerMoved { position });
+        p.window().dispatch_event(WindowEvent::PointerPressed {
+            position,
+            button: slint::platform::PointerEventButton::Left,
+        });
+        let position = slint::LogicalPosition::new(x as f32, y as f32 + dy);
+        p.window()
+            .dispatch_event(WindowEvent::PointerMoved { position });
+        p.window().take_snapshot().unwrap();
+        p.window().dispatch_event(WindowEvent::PointerReleased {
+            position,
+            button: slint::platform::PointerEventButton::Left,
+        });
+    };
+    let text_weight = p.get_text_panel_weight();
+    drag(rows[0].0, rows[0].1, -40.0);
+    assert!(p.get_next_panel_weight() < 0.30);
+    assert!(p.get_beamer_panel_weight() > 0.30);
+    assert_eq!(p.get_text_panel_weight(), text_weight);
+    let next_weight = p.get_next_panel_weight();
+    drag(rows[1].0, rows[1].1, -40.0);
+    assert!(p.get_text_panel_weight() > text_weight);
+    assert_eq!(p.get_next_panel_weight(), next_weight);
+    // Exercise the menu via pointer events, then render the open menu too.
+    let position = slint::LogicalPosition::new(1229.0, 72.0);
+    p.window().dispatch_event(WindowEvent::PointerPressed {
+        position,
+        button: slint::platform::PointerEventButton::Left,
+    });
+    p.window().dispatch_event(WindowEvent::PointerReleased {
+        position,
+        button: slint::platform::PointerEventButton::Left,
+    });
+    assert!(p.get_show_panel_menu());
+    p.window().set_size(slint::PhysicalSize::new(1281, 800));
+    p.window().set_size(slint::PhysicalSize::new(1280, 800));
+    let snapshot = p.window().take_snapshot().unwrap();
+    image::save_buffer(
+        "target/perf-results/presenter-panels.png",
+        snapshot.as_bytes(),
+        snapshot.width(),
+        snapshot.height(),
+        image::ColorType::Rgba8,
+    )
+    .unwrap();
+    p.set_notes_drawer_open(false);
+
     let count = state.borrow().deck.total_slides();
     p.invoke_insert_page_configured(0, "dotted".into(), slint::Color::from_rgb_u8(255, 255, 255));
     assert_eq!(state.borrow().deck.total_slides(), count + 1);

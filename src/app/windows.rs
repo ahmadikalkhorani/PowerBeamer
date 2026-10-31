@@ -107,5 +107,114 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
         });
     }
 
-    Vec::new()
+    // Each preview has its own native, freely resizable window. Keep strong handles
+    // in the sync timer so closing a preview hides it without destroying it.
+    let next = crate::PreviewWindow::new().expect("next-slide window");
+    let beamer = crate::PreviewWindow::new().expect("Beamer notes window");
+    next.set_heading("Next slide".into());
+    beamer.set_heading("Presenter speaker note".into());
+    for (window, is_beamer) in [(&next, false), (&beamer, true)] {
+        let presenter = presenter_window.as_weak();
+        window.window().on_close_requested(move || {
+            if let Some(p) = presenter.upgrade() {
+                if is_beamer {
+                    p.set_beamer_detached(false);
+                } else {
+                    p.set_next_detached(false);
+                }
+            }
+            slint::CloseRequestResponse::HideWindow
+        });
+    }
+    let next_handle = next.as_weak();
+    let beamer_handle = beamer.as_weak();
+    let presenter = presenter_window.as_weak();
+    presenter_window.on_toggle_preview_window(move |kind| {
+        let window = if kind == 0 {
+            next_handle.upgrade()
+        } else {
+            beamer_handle.upgrade()
+        };
+        if let (Some(w), Some(p)) = (window, presenter.upgrade()) {
+            let open = !w.window().is_visible();
+            if kind == 0 {
+                w.set_picture(p.get_next_slide_image());
+                p.set_next_detached(open);
+            } else {
+                w.set_picture(p.get_notes_slide_image());
+                p.set_beamer_detached(open);
+            }
+            if open {
+                let _ = w.show();
+            } else {
+                let _ = w.hide();
+            }
+        }
+    });
+    notes_window.set_notes_font_size(presenter_window.get_notes_font_size());
+    for from_detached in [false, true] {
+        let state = state.clone();
+        let presenter = presenter_window.as_weak();
+        let notes = notes_window.as_weak();
+        let resize = move |size: i32| {
+            let size = size.clamp(8, 48);
+            let mut st = state.borrow_mut();
+            st.notes_font_size = size;
+            st.capture_settings().save_background();
+            if let Some(p) = presenter.upgrade() {
+                p.set_notes_font_size(size);
+            }
+            if let Some(n) = notes.upgrade() {
+                n.set_notes_font_size(size);
+            }
+        };
+        if from_detached {
+            notes_window.on_resize_notes_font(resize);
+        } else {
+            presenter_window.on_resize_notes_font(resize);
+        }
+    }
+    let sync = slint::Timer::default();
+    let presenter = presenter_window.as_weak();
+    let notes = notes_window.as_weak();
+    sync.start(
+        slint::TimerMode::Repeated,
+        std::time::Duration::from_millis(100),
+        move || {
+            if let Some(p) = presenter.upgrade() {
+                for (window, visible) in [
+                    (&next, p.get_next_detached() && p.get_show_next_panel()),
+                    (
+                        &beamer,
+                        p.get_beamer_detached() && p.get_show_beamer_panel(),
+                    ),
+                ] {
+                    if visible != window.window().is_visible() {
+                        if visible {
+                            let _ = window.show();
+                        } else {
+                            let _ = window.hide();
+                        }
+                    }
+                }
+                if let Some(n) = notes.upgrade() {
+                    let visible = p.get_notes_window_open() && p.get_show_text_panel();
+                    if visible != n.window().is_visible() {
+                        if visible {
+                            let _ = n.show();
+                        } else {
+                            let _ = n.hide();
+                        }
+                    }
+                }
+                if next.window().is_visible() {
+                    next.set_picture(p.get_next_slide_image());
+                }
+                if beamer.window().is_visible() {
+                    beamer.set_picture(p.get_notes_slide_image());
+                }
+            }
+        },
+    );
+    vec![sync]
 }

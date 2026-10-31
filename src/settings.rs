@@ -9,6 +9,7 @@ use std::path::PathBuf;
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
+    pub notes_font_size: Option<i32>,
     pub sync_with_source: Option<bool>,
     pub render_quality: Option<String>,
 
