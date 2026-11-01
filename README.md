@@ -52,16 +52,19 @@ xattr -d com.apple.quarantine /Applications/PowerBeamer.app
 
 <table>
   <tr>
+    <td width="50%"><img src="docs/screenshots/teleprompter-notes.png" alt="Sentence-by-sentence teleprompter speaker notes"><br><em>Sentence-by-sentence teleprompter notes with auto-scroll (<code>]</code> / <code>[</code>)</em></td>
     <td width="50%"><img src="docs/screenshots/inking.png" alt="Pen, highlighter and auto-shapes on a slide"><br><em>Vector ink, highlighter and auto-shape snapping</em></td>
+  </tr>
+  <tr>
     <td width="50%"><img src="docs/screenshots/zoom.png" alt="Area zoom into a figure"><br><em>Drag-to-zoom into dense equations and plots</em></td>
-  </tr>
-  <tr>
     <td width="50%"><img src="docs/screenshots/thumbnails.png" alt="Slide thumbnail overview"><br><em>Thumbnail overview (<code>T</code>) with insert, cut, duplicate, rotate and delete</em></td>
-    <td width="50%"><img src="docs/screenshots/whiteboard.png" alt="Inserted whiteboard slide"><br><em>Insert a blank whiteboard mid-talk (<code>N</code>)</em></td>
   </tr>
   <tr>
+    <td width="50%"><img src="docs/screenshots/whiteboard.png" alt="Inserted whiteboard slide"><br><em>Insert a blank whiteboard mid-talk (<code>N</code>)</em></td>
     <td width="50%"><img src="docs/screenshots/toc.png" alt="Document outline drawer"><br><em>Outline / TOC drawer (<code>O</code>) for instant jumps</em></td>
-    <td width="50%"><img src="docs/screenshots/player.png" alt="Built-in audio/video player"><br><em>Built-in Audio/Video player (<code>M</code>)</em></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><img src="docs/screenshots/player.png" alt="Built-in audio/video player" width="50%"><br><em>Built-in Audio/Video player (<code>M</code>)</em></td>
   </tr>
 </table>
 
@@ -97,14 +100,21 @@ Most PDF presenters treat a Beamer deck as a pile of pages. PowerBeamer understa
 ### 🔍 Built for LaTeX Beamer
 - **Automatic dual-screen detection**: recognizes `pgfpages` side-by-side output (aspect ratio ≥ 2.0, e.g. 8:3 or 32:9) and splits audience slide from presenter notes. No flags or config.
 - **Frame vs. overlay navigation**: `J` / `K` jump whole Beamer frames, while arrow keys step through every `\pause` and `\only` overlay.
+- **Smart Teleprompter Speaker Notes**:
+  - Automatically parses notes and bullet items into clean sentence segments.
+  - Step through sentences with `]` (or `>`) and step back with `[` (or `<`), keeping your place effortlessly while glancing between your audience and your notes.
+  - Smooth animated auto-scrolling keeps the currently active sentence right at the top of the viewport.
+  - Continuous reading workflow: hitting `]` on the final sentence of a slide automatically advances to the next slide so your hand never has to leave position.
+  - Notes options menu (`•••`) with customizable font sizes, typefaces (Sans, Serif, Monospace), bold toggle, and multiple highlight modes (Neon Glow, Teleprompter Dim, Amber Accent, or Off).
 - **Audience window options**: right-click the Audience Window button to hide the title bar for window sharing, keep the window on top, or enter full screen. Title-bar and on-top preferences are saved. Use Ctrl/⌘+Shift+B to restore the title bar for moving/resizing, or Escape in the audience window to exit full screen.
 - **Outline / TOC drawer (`O`)** built from the PDF outline, plus a **thumbnail grid (`T`)** where you can also insert, cut, duplicate, rotate and delete pages.
 - **Hold-to-follow hyperlinks**: press and hold an internal PDF link (~0.4 s, with a progress ring) to follow it, so you never jump by accident while inking.
-- **Speaker notes and comments** in a resizable panel, or in a detached window.
+- **Speaker notes and comments** in a resizable docked drawer, or in a detached floating window.
 - **Multimedia**: `\movie` and `\includemedia` video and audio play inline (`M` to toggle).
 
 ### 📊 PowerPoint & OpenDocument (`.pptx`, `.ppt`, `.odp`)
 - **Direct file opening**: open `.pptx` decks directly via File Dialog or CLI (`powerbeamer presentation.pptx`).
+- **Clean defaults**: PowerPoint files automatically hide the Beamer slide preview panel by default, optimizing your workspace for extracted notes and slide previews.
 - **Cross-platform headless engine**: natively converts slides using Microsoft PowerPoint (macOS AppleScript / Windows COM) or headless LibreOffice (`soffice`), with zero permission popups or manual steps.
 - **OpenXML extraction**: reads speaker notes, slide titles, named sections for the TOC, and embedded media using the presentation's slide order and relationships.
 - **Hidden PPTX slides**: skipped by next/previous and frame navigation, with a “Hidden” badge in the overview. Direct TOC, thumbnail, and slide-link jumps can still open them. Generated PDF conversions include every slide; companion PDFs must also include hidden slides.
@@ -145,6 +155,8 @@ Most PDF presenters treat a Beamer deck as a pile of pages. PowerBeamer understa
 | :--- | :--- |
 | `Space` / `→` / `↓` / `PgDn` / `Enter` | Next slide / overlay step |
 | `←` / `↑` / `PgUp` / `Backspace` | Previous slide / overlay step |
+| `]` or `>` | Next sentence in notes (or advance slide at end of notes) |
+| `[` or `<` | Previous sentence in notes (or previous slide at start) |
 | `J` / `K` | Next / previous Beamer frame (skip overlays) |
 | `P` / `H` / `E` / `L` | Pen / Highlighter / Eraser / Laser |
 | `Z` | Zoom tool (drag a box) / reset zoom |
