@@ -77,6 +77,8 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                     return;
                 }
                 let job = st.deck_load.take().unwrap();
+                let is_open_kind = matches!(job.kind, DeckLoadKind::Open);
+                let is_pptx_deck = crate::pdf::PptxEngine::is_pptx(&job.path);
                 let toast = match (result, job.kind) {
                     (Ok((slides, toc)), DeckLoadKind::Open) => {
                         println!(
@@ -126,6 +128,9 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                     p.set_deck_loading(false);
                     if reloaded {
                         update_slide_thumbnails_model(&state.borrow().deck, &p);
+                        if is_open_kind && is_pptx_deck {
+                            p.set_show_beamer_panel(false);
+                        }
                     }
                     if synced {
                         p.set_sync_status_text(SharedString::from(format!(

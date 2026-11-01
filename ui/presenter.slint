@@ -2963,19 +2963,19 @@ export component PresenterWindow inherits Window {
                 property <length> avail_w: max(100px, self.width > 48px ? self.width - 48px : 100px);
                 property <length> avail_h: max(100px, (self.height - (root.current_has_media ? 52px : 0px) > 48px) ? (self.height - (root.current_has_media ? 52px : 0px) - 48px) : 100px);
                 property <float> aspect: root.slide_aspect > 0.1 ? root.slide_aspect : 1.7778;
-                property <length> paper_w: (self.avail_w / 1px) / (self.avail_h / 1px) > self.aspect
+                property <length> paper_w: Math.round(((self.avail_w / 1px) / (self.avail_h / 1px) > self.aspect
                     ? (self.avail_h * self.aspect)
-                    : self.avail_w;
-                property <length> paper_h: (self.avail_w / 1px) / (self.avail_h / 1px) > self.aspect
+                    : self.avail_w) / 1px) * 1px;
+                property <length> paper_h: Math.round(((self.avail_w / 1px) / (self.avail_h / 1px) > self.aspect
                     ? self.avail_h
-                    : (self.avail_w / self.aspect);
+                    : (self.avail_w / self.aspect)) / 1px) * 1px;
 
                 // Document Page (Centered white paper with drop shadow matching Presenter)
                 paper_box := Rectangle {
                     width: canvas_area.paper_w;
                     height: canvas_area.paper_h;
-                    x: max(0px, (parent.width - self.width) / 2);
-                    y: max(0px, (parent.height - (root.current_has_media ? 52px : 0px) - self.height) / 2);
+                    x: Math.round(max(0px, (parent.width - self.width) / 2) / 1px) * 1px;
+                    y: Math.round(max(0px, (parent.height - (root.current_has_media ? 52px : 0px) - self.height) / 2) / 1px) * 1px;
                     background: #ffffff;
                     border-radius: 4px;
                     drop-shadow-blur: 16px;
@@ -2989,10 +2989,10 @@ export component PresenterWindow inherits Window {
 
                     // Zoomable content layer: everything in slide space lives here
                     zoom_layer := Rectangle {
-                    width: parent.width * paper_box.zl;
-                    height: parent.height * paper_box.zl;
-                    x: parent.width * (0.5 - paper_box.zpx * paper_box.zl);
-                    y: parent.height * (0.5 - paper_box.zpy * paper_box.zl);
+                    width: Math.round((parent.width * paper_box.zl) / 1px) * 1px;
+                    height: Math.round((parent.height * paper_box.zl) / 1px) * 1px;
+                    x: Math.round((parent.width * (0.5 - paper_box.zpx * paper_box.zl)) / 1px) * 1px;
+                    y: Math.round((parent.height * (0.5 - paper_box.zpy * paper_box.zl)) / 1px) * 1px;
 
                     // Rendered PDF Page
                     Image {
@@ -3293,10 +3293,10 @@ export component PresenterWindow inherits Window {
 
                     // In-canvas custom tool-shaped cursor matching selected tool
                     if touch_canvas.has-hover && !root.hovered_on_link: Rectangle {
-                        x: touch_canvas.mouse-x - (root.media_track_tool_active ? 8px : (root.current_tool == ActiveTool.Eraser ? 12px : (root.current_tool == ActiveTool.Laser ? 7px : 2px)));
-                        y: touch_canvas.mouse-y - (root.media_track_tool_active ? 8px : (root.current_tool == ActiveTool.Eraser ? 12px : (root.current_tool == ActiveTool.Laser ? 7px : 2px)));
-                        width: root.media_track_tool_active ? 16px : 24px;
-                        height: root.media_track_tool_active ? 16px : 24px;
+                        x: touch_canvas.mouse-x - (root.media_track_tool_active ? 8px : (root.current_tool == ActiveTool.Eraser ? 12px : (root.current_tool == ActiveTool.Laser ? 8px : 2px)));
+                        y: touch_canvas.mouse-y - (root.media_track_tool_active ? 8px : (root.current_tool == ActiveTool.Eraser ? 12px : (root.current_tool == ActiveTool.Laser ? 8px : 2px)));
+                        width: root.media_track_tool_active ? 16px : (root.current_tool == ActiveTool.Laser ? 16px : 24px);
+                        height: root.media_track_tool_active ? 16px : (root.current_tool == ActiveTool.Laser ? 16px : 24px);
                         clip: false;
 
                         if !root.media_track_tool_active && root.current_tool == ActiveTool.Pen: Rectangle {
@@ -3340,20 +3340,24 @@ export component PresenterWindow inherits Window {
                         }
 
                         if !root.media_track_tool_active && root.current_tool == ActiveTool.Laser && !root.laser_active: Rectangle {
-                            x: 0px;
-                            y: 0px;
-                            width: 14px;
-                            height: 14px;
-                            border-radius: 7px;
-                            background: root.laser_color.transparentize(0.3);
-                            drop-shadow-blur: 8px;
-                            drop-shadow-color: root.laser_color;
+                            width: 16px;
+                            height: 16px;
+                            border-radius: 8px;
+                            background: root.laser_color.transparentize(0.4);
                             Rectangle {
                                 x: 4px;
                                 y: 4px;
-                                width: 6px;
-                                height: 6px;
-                                border-radius: 3px;
+                                width: 8px;
+                                height: 8px;
+                                border-radius: 4px;
+                                background: root.laser_color;
+                            }
+                            Rectangle {
+                                x: 6px;
+                                y: 6px;
+                                width: 4px;
+                                height: 4px;
+                                border-radius: 2px;
                                 background: #ffffff;
                             }
                         }
@@ -8072,18 +8076,18 @@ export component AudienceWindow inherits Window {
         property <length> avail_w: max(100px, self.width);
         property <length> avail_h: max(100px, self.height);
         property <float> aspect: root.slide_aspect > 0.1 ? root.slide_aspect : 1.7778;
-        property <length> aud_w: (self.avail_w / 1px) / (self.avail_h / 1px) > self.aspect
+        property <length> aud_w: Math.round(((self.avail_w / 1px) / (self.avail_h / 1px) > self.aspect
             ? (self.avail_h * self.aspect)
-            : self.avail_w;
-        property <length> aud_h: (self.avail_w / 1px) / (self.avail_h / 1px) > self.aspect
+            : self.avail_w) / 1px) * 1px;
+        property <length> aud_h: Math.round(((self.avail_w / 1px) / (self.avail_h / 1px) > self.aspect
             ? self.avail_h
-            : (self.avail_w / self.aspect);
+            : (self.avail_w / self.aspect)) / 1px) * 1px;
 
         Rectangle {
             width: parent.aud_w;
             height: parent.aud_h;
-            x: (parent.width - self.width) / 2;
-            y: (parent.height - self.height) / 2;
+            x: Math.round(((parent.width - self.width) / 2) / 1px) * 1px;
+            y: Math.round(((parent.height - self.height) / 2) / 1px) * 1px;
             clip: true;
 
             property <float> zl: max(1.0, root.zoom_level);
@@ -8092,10 +8096,10 @@ export component AudienceWindow inherits Window {
 
             // Zoomable content layer: everything in slide space lives here
             Rectangle {
-            width: parent.width * parent.zl;
-            height: parent.height * parent.zl;
-            x: parent.width * (0.5 - parent.zpx * parent.zl);
-            y: parent.height * (0.5 - parent.zpy * parent.zl);
+            width: Math.round((parent.width * parent.zl) / 1px) * 1px;
+            height: Math.round((parent.height * parent.zl) / 1px) * 1px;
+            x: Math.round((parent.width * (0.5 - parent.zpx * parent.zl)) / 1px) * 1px;
+            y: Math.round((parent.height * (0.5 - parent.zpy * parent.zl)) / 1px) * 1px;
 
             Image {
                 width: 100%;

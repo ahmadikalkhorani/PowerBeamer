@@ -460,7 +460,13 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
             } else {
                 0
             };
-            if seg_count > 0 {
+            if seg_count == 0 || st.notes_active_index >= (seg_count as i32 - 1) {
+                // Already at the last line (or no notes): trigger next slide transition
+                drop(st);
+                if let Some(p) = presenter.upgrade() {
+                    p.invoke_next_slide();
+                }
+            } else {
                 let next_idx = (st.notes_active_index + 1).min(seg_count as i32 - 1);
                 st.notes_active_index = next_idx;
                 if let Some(p) = presenter.upgrade() {
@@ -484,13 +490,21 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
         let notes = notes_window.as_weak();
         let step_prev = move || {
             let mut st = state.borrow_mut();
-            let next_idx = (st.notes_active_index - 1).max(0);
-            st.notes_active_index = next_idx;
-            if let Some(p) = presenter.upgrade() {
-                p.set_notes_active_index(next_idx);
-            }
-            if let Some(n) = notes.upgrade() {
-                n.set_notes_active_index(next_idx);
+            if st.notes_active_index <= 0 {
+                // Already at the first line (or no notes): trigger previous slide transition
+                drop(st);
+                if let Some(p) = presenter.upgrade() {
+                    p.invoke_prev_slide();
+                }
+            } else {
+                let next_idx = (st.notes_active_index - 1).max(0);
+                st.notes_active_index = next_idx;
+                if let Some(p) = presenter.upgrade() {
+                    p.set_notes_active_index(next_idx);
+                }
+                if let Some(n) = notes.upgrade() {
+                    n.set_notes_active_index(next_idx);
+                }
             }
         };
         if from_detached {
