@@ -447,6 +447,10 @@ pub(crate) fn build_slide_view(
                 p.set_is_dual_screen(is_dual_screen);
                 p.set_notes_slide_image(slint_notes_img.clone());
                 p.set_notes_text(SharedString::from(&slide_notes));
+                let segs = crate::app::windows::parse_notes_to_segments(&slide_notes);
+                p.set_notes_segments(segs.clone());
+                st.notes_active_index = 0;
+                p.set_notes_active_index(0);
                 p.set_render_quality(SharedString::from(st.deck.quality.label()));
                 p.set_has_source_file(st.deck.file_path.is_some());
                 p.set_sync_with_source(st.sync_with_source);
@@ -547,6 +551,8 @@ pub(crate) fn build_slide_view(
                 n.set_is_dual_screen(is_dual_screen);
                 n.set_notes_slide_image(slint_notes_img);
                 n.set_notes_body(SharedString::from(&slide_notes));
+                n.set_notes_segments(crate::app::windows::parse_notes_to_segments(&slide_notes));
+                n.set_notes_active_index(0);
                 n.set_mini_slide(slint_current);
             }
 

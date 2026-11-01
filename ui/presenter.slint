@@ -97,13 +97,225 @@ component PanelResizeHandle inherits Rectangle {
         }
     }
 }
-component FontControls inherits HorizontalLayout {
-    in property <int> size;
-    callback resize(int);
-    alignment: end; spacing: 4px;
-    PanelButton { label: "−"; clicked => { root.resize(max(8, root.size - 1)); } }
-    Text { text: "Aa " + root.size; color: #a1a1aa; font-size: 12px; vertical-alignment: center; }
-    PanelButton { label: "+"; clicked => { root.resize(min(48, root.size + 1)); } }
+export struct NoteSegment {
+    text: string,
+    is_bullet: bool,
+}
+
+component NotesOptionsMenu inherits Rectangle {
+    in property <int> font_size: 14;
+    in property <string> font_family: "sans-serif";
+    in property <bool> font_bold: false;
+    in property <bool> always_on_top: false;
+    in property <bool> show_always_on_top: true;
+    in property <int> highlight_style: 0; // 0: Pill Glow, 1: Teleprompter Dim, 2: Accent Border, 3: Off
+
+    callback resize_font(int);
+    callback set_font_family(string);
+    callback toggle_font_bold(bool);
+    callback toggle_always_on_top(bool);
+    callback set_highlight_style(int);
+
+    width: 250px;
+    background: #1c1c22;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: #3f3f46;
+    drop-shadow-blur: 14px;
+    drop-shadow-color: #000000bb;
+
+    VerticalLayout {
+        padding: 12px;
+        spacing: 10px;
+
+        // Title Header
+        HorizontalLayout {
+            alignment: space-between;
+            Text {
+                text: "SPEAKER NOTES SETTINGS";
+                font-size: 10px;
+                font-weight: 700;
+                color: #9ca3af;
+                vertical-alignment: center;
+            }
+            Text {
+                text: "⚙";
+                font-size: 11px;
+                color: #60a5fa;
+                vertical-alignment: center;
+            }
+        }
+
+        Rectangle { height: 1px; background: #2e2e34; }
+
+        // Font Size Row
+        HorizontalLayout {
+            alignment: space-between;
+            Text {
+                text: "Font Size";
+                font-size: 12px;
+                color: #e4e4e7;
+                vertical-alignment: center;
+            }
+            HorizontalLayout {
+                spacing: 4px;
+                Rectangle {
+                    width: 26px; height: 24px; border-radius: 4px;
+                    background: touch_minus.has-hover ? #374151 : #27272a;
+                    Text { text: "−"; color: #fff; font-size: 14px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+                    touch_minus := TouchArea { clicked => { root.resize_font(max(8, root.font_size - 1)); } }
+                }
+                Rectangle {
+                    width: 44px; height: 24px; border-radius: 4px;
+                    background: #18181b;
+                    border-width: 1px;
+                    border-color: #27272a;
+                    Text {
+                        text: root.font_size + "px";
+                        font-size: 11px;
+                        font-weight: 600;
+                        color: #60a5fa;
+                        vertical-alignment: center;
+                        horizontal-alignment: center;
+                    }
+                }
+                Rectangle {
+                    width: 26px; height: 24px; border-radius: 4px;
+                    background: touch_plus.has-hover ? #374151 : #27272a;
+                    Text { text: "+"; color: #fff; font-size: 14px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+                    touch_plus := TouchArea { clicked => { root.resize_font(min(48, root.font_size + 1)); } }
+                }
+            }
+        }
+
+        // Font Style / Family Selector
+        HorizontalLayout {
+            alignment: space-between;
+            Text {
+                text: "Font Style";
+                font-size: 12px;
+                color: #e4e4e7;
+                vertical-alignment: center;
+            }
+            HorizontalLayout {
+                spacing: 4px;
+                Rectangle {
+                    width: 46px; height: 24px; border-radius: 4px;
+                    background: (root.font_family == "Helvetica" || root.font_family == "sans-serif") ? #2563eb : (touch_sans.has-hover ? #374151 : #27272a);
+                    Text { text: "Sans"; font-size: 10px; font-weight: 600; color: #fff; horizontal-alignment: center; vertical-alignment: center; }
+                    touch_sans := TouchArea { clicked => { root.set_font_family("Helvetica"); } }
+                }
+                Rectangle {
+                    width: 46px; height: 24px; border-radius: 4px;
+                    background: (root.font_family == "Georgia" || root.font_family == "serif") ? #2563eb : (touch_serif.has-hover ? #374151 : #27272a);
+                    Text { text: "Serif"; font-size: 10px; font-weight: 600; color: #fff; horizontal-alignment: center; vertical-alignment: center; }
+                    touch_serif := TouchArea { clicked => { root.set_font_family("Georgia"); } }
+                }
+                Rectangle {
+                    width: 46px; height: 24px; border-radius: 4px;
+                    background: (root.font_family == "Menlo" || root.font_family == "monospace") ? #2563eb : (touch_mono.has-hover ? #374151 : #27272a);
+                    Text { text: "Mono"; font-size: 10px; font-weight: 600; color: #fff; horizontal-alignment: center; vertical-alignment: center; }
+                    touch_mono := TouchArea { clicked => { root.set_font_family("Menlo"); } }
+                }
+            }
+        }
+
+        // Bold / Weight Row
+        HorizontalLayout {
+            alignment: space-between;
+            HorizontalLayout {
+                spacing: 6px;
+                Text {
+                    text: "Bold Text";
+                    font-size: 12px;
+                    color: #e4e4e7;
+                    vertical-alignment: center;
+                }
+                Rectangle {
+                    width: 18px; height: 18px; border-radius: 3px;
+                    background: #27272a;
+                    y: (parent.height - self.height) / 2;
+                    Text { text: "B"; font-size: 11px; font-weight: 800; color: #93c5fd; horizontal-alignment: center; vertical-alignment: center; }
+                }
+            }
+            Rectangle {
+                width: 38px; height: 20px; border-radius: 10px;
+                background: root.font_bold ? #2563eb : #3f3f46;
+                Rectangle {
+                    x: root.font_bold ? 19px : 2px;
+                    y: 2px;
+                    width: 16px; height: 16px; border-radius: 8px;
+                    background: #ffffff;
+                    animate x { duration: 120ms; }
+                }
+                TouchArea { clicked => { root.toggle_font_bold(!root.font_bold); } }
+            }
+        }
+
+        // Highlight Style Row (Pill Glow, Teleprompter Dim, Accent, Off)
+        VerticalLayout {
+            spacing: 4px;
+            HorizontalLayout {
+                alignment: space-between;
+                Text {
+                    text: "Highlight Mode [ / ]";
+                    font-size: 12px;
+                    color: #e4e4e7;
+                    vertical-alignment: center;
+                }
+            }
+            HorizontalLayout {
+                spacing: 4px;
+                Rectangle {
+                    horizontal-stretch: 1; height: 22px; border-radius: 4px;
+                    background: root.highlight_style == 0 ? #2563eb : (touch_hl0.has-hover ? #374151 : #27272a);
+                    Text { text: "Glow"; font-size: 10px; font-weight: 600; color: #fff; horizontal-alignment: center; vertical-alignment: center; }
+                    touch_hl0 := TouchArea { clicked => { root.set_highlight_style(0); } }
+                }
+                Rectangle {
+                    horizontal-stretch: 1; height: 22px; border-radius: 4px;
+                    background: root.highlight_style == 1 ? #2563eb : (touch_hl1.has-hover ? #374151 : #27272a);
+                    Text { text: "Teleprompt"; font-size: 10px; font-weight: 600; color: #fff; horizontal-alignment: center; vertical-alignment: center; }
+                    touch_hl1 := TouchArea { clicked => { root.set_highlight_style(1); } }
+                }
+                Rectangle {
+                    horizontal-stretch: 1; height: 22px; border-radius: 4px;
+                    background: root.highlight_style == 2 ? #2563eb : (touch_hl2.has-hover ? #374151 : #27272a);
+                    Text { text: "Accent"; font-size: 10px; font-weight: 600; color: #fff; horizontal-alignment: center; vertical-alignment: center; }
+                    touch_hl2 := TouchArea { clicked => { root.set_highlight_style(2); } }
+                }
+                Rectangle {
+                    horizontal-stretch: 1; height: 22px; border-radius: 4px;
+                    background: root.highlight_style == 3 ? #2563eb : (touch_hl3.has-hover ? #374151 : #27272a);
+                    Text { text: "Off"; font-size: 10px; font-weight: 600; color: #fff; horizontal-alignment: center; vertical-alignment: center; }
+                    touch_hl3 := TouchArea { clicked => { root.set_highlight_style(3); } }
+                }
+            }
+        }
+
+        // Always On Top Row
+        if root.show_always_on_top: HorizontalLayout {
+            alignment: space-between;
+            Text {
+                text: "Always on Top";
+                font-size: 12px;
+                color: #e4e4e7;
+                vertical-alignment: center;
+            }
+            Rectangle {
+                width: 38px; height: 20px; border-radius: 10px;
+                background: root.always_on_top ? #2563eb : #3f3f46;
+                Rectangle {
+                    x: root.always_on_top ? 19px : 2px;
+                    y: 2px;
+                    width: 16px; height: 16px; border-radius: 8px;
+                    background: #ffffff;
+                    animate x { duration: 120ms; }
+                }
+                TouchArea { clicked => { root.toggle_always_on_top(!root.always_on_top); } }
+            }
+        }
+    }
 }
 component PreviewPanel inherits Rectangle {
     in property <string> heading;
@@ -777,7 +989,28 @@ export component PresenterWindow inherits Window {
     in-out property <length> audience_menu_anchor_x: 0px;
     in-out property <length> audience_menu_anchor_y: 0px;
     in-out property <int> notes_font_size: 14;
+    in-out property <string> notes_font_family: "sans-serif";
+    in-out property <bool> notes_font_bold: false;
+    in-out property <bool> notes_always_on_top: false;
+    in-out property <int> notes_highlight_style: 0; // 0: Glow, 1: Teleprompt, 2: Accent, 3: Off
+    in-out property <int> notes_active_index: 0;
+    in-out property <[NoteSegment]> notes_segments: [];
+    property <length> drawer_scroll_y: 0px;
+    changed notes_segments => {
+        root.drawer_scroll_y = 0px;
+    }
+    in-out property <bool> notes_edit_mode: false;
+    in-out property <bool> show_notes_menu: false;
+    in-out property <length> notes_menu_anchor_x: 0px;
+    in-out property <length> notes_menu_anchor_y: 0px;
     callback resize_notes_font(int);
+    callback set_notes_font_family(string);
+    callback set_notes_font_bold(bool);
+    callback set_notes_always_on_top(bool);
+    callback set_notes_highlight_style(int);
+    callback set_notes_active_index(int);
+    callback next_notes_sentence();
+    callback prev_notes_sentence();
     callback toggle_preview_window(int);
     in-out property <bool> next_detached: false;
     in-out property <bool> beamer_detached: false;
@@ -1090,7 +1323,10 @@ export component PresenterWindow inherits Window {
     // Keyboard shortcuts, shared by the presenter and audience windows (returns true if handled)
     public function handle_key(text: string, ctrl: bool, meta: bool, shift: bool) -> bool {
         if (text == Key.Escape) {
-            if (root.show_audience_menu) {
+            if (root.show_notes_menu) {
+                root.show_notes_menu = false;
+                return true;
+            } else if (root.show_audience_menu) {
                 root.show_audience_menu = false;
                 return true;
             } else if (root.show_toc_drawer) {
@@ -1219,6 +1455,12 @@ export component PresenterWindow inherits Window {
             return true;
         } else if (text == "m" || text == "M") {
             root.toggle_media_playback();
+            return true;
+        } else if (text == "[" || text == "<" || (text == "," && shift)) {
+            root.prev_notes_sentence();
+            return true;
+        } else if (text == "]" || text == ">" || (text == "." && shift)) {
+            root.next_notes_sentence();
             return true;
         } else if (text == "1") {
             root.active_color_slot = 0;
@@ -5958,7 +6200,7 @@ export component PresenterWindow inherits Window {
                             padding: 8px;
                             spacing: 6px;
 
-                            // Header with title and quick snippet action buttons
+                            // Header with title, quick snippet action buttons, and 3-dots options menu
                             HorizontalLayout {
                                 alignment: space-between;
 
@@ -5970,116 +6212,120 @@ export component PresenterWindow inherits Window {
                                     vertical-alignment: center;
                                 }
 
-                                PanelButton { label: "↗"; clicked => { root.toggle_notes_window(); } }
-                            }
                                 HorizontalLayout {
                                     spacing: 4px;
-                                    // + Bullet button
+                                    // 3-dots options button
                                     Rectangle {
+                                        width: 22px;
                                         height: 20px;
                                         border-radius: 4px;
-                                        background: btn_bullet.has-hover ? #374151 : #27272a;
+                                        background: touch_notes_dots.has-hover || root.show_notes_menu ? #374151 : #27272a;
                                         HorizontalLayout {
-                                            padding-left: 6px;
-                                            padding-right: 6px;
-                                            Text {
-                                                text: "+ Bullet";
-                                                font-size: 10px;
-                                                color: #e5e7eb;
-                                                vertical-alignment: center;
+                                            alignment: center;
+                                            spacing: 2px;
+                                            for dot_idx in 3: Rectangle {
+                                                width: 3px;
+                                                height: 3px;
+                                                border-radius: 1.5px;
+                                                background: #e5e7eb;
+                                                y: (parent.height - self.height) / 2;
                                             }
                                         }
-                                        btn_bullet := TouchArea {
+                                        touch_notes_dots := TouchArea {
+                                            mouse-cursor: pointer;
                                             clicked => {
-                                                root.notes_text = root.notes_text + (root.notes_text == "" ? "• " : "\n• ");
-                                                root.update_slide_notes(root.current_slide, root.notes_text);
+                                                root.notes_menu_anchor_x = self.absolute-position.x;
+                                                root.notes_menu_anchor_y = self.absolute-position.y + self.height;
+                                                root.show_notes_menu = !root.show_notes_menu;
                                             }
                                         }
                                     }
 
-                                    // + Reminder button
-                                    Rectangle {
-                                        height: 20px;
-                                        border-radius: 4px;
-                                        background: btn_rem.has-hover ? #374151 : #27272a;
-                                        HorizontalLayout {
-                                            padding-left: 6px;
-                                            padding-right: 6px;
-                                            Text {
-                                                text: "⏰ Reminder";
-                                                font-size: 10px;
-                                                color: #fbbf24;
-                                                vertical-alignment: center;
-                                            }
-                                        }
-                                        btn_rem := TouchArea {
-                                            clicked => {
-                                                root.notes_text = root.notes_text + (root.notes_text == "" ? "⏰ Reminder: " : "\n⏰ Reminder: ");
-                                                root.update_slide_notes(root.current_slide, root.notes_text);
-                                            }
-                                        }
-                                    }
-
-                                    // Clear button
-                                    Rectangle {
-                                        height: 20px;
-                                        border-radius: 4px;
-                                        background: btn_clr.has-hover ? #451a1a : #27272a;
-                                        HorizontalLayout {
-                                            padding-left: 6px;
-                                            padding-right: 6px;
-                                            Text {
-                                                text: "Clear";
-                                                font-size: 10px;
-                                                color: #f87171;
-                                                vertical-alignment: center;
-                                            }
-                                        }
-                                        btn_clr := TouchArea {
-                                            clicked => {
-                                                root.notes_text = "";
-                                                root.update_slide_notes(root.current_slide, "");
-                                            }
-                                        }
-                                    }
+                                    PanelButton { label: "↗"; clicked => { root.toggle_notes_window(); } }
                                 }
+                            }
 
-                            // Editable Comment Box
+                            // Notes Display Area (Teleprompter / Read-only presentation view)
                             Rectangle {
                                 vertical-stretch: 1;
                                 background: #1c1c20;
                                 border-radius: 4px;
                                 border-width: 1px;
-                                border-color: comment_input.has-focus ? #3b82f6 : #2e2e34;
+                                border-color: #2e2e34;
                                 clip: true;
 
                                 ScrollView {
+                                    content-y <=> root.drawer_scroll_y;
+                                    animate content-y { duration: 160ms; easing: ease-out; }
+
                                     VerticalLayout {
                                         padding: 8px;
+                                        spacing: 4px;
 
-                                        comment_input := TextInput {
-                                            changed has-focus => { root.notes_editor_focused = self.has-focus; }
-                                            text: root.notes_text;
-                                            color: #f3f4f6;
-                                            font-size: root.notes_font_size * 1px;
-                                            wrap: word-wrap;
-                                            edited => {
-                                                root.notes_text = self.text;
-                                                root.update_slide_notes(root.current_slide, self.text);
+                                        for seg[idx] in root.notes_segments: seg_item := Rectangle {
+                                            property <bool> is_active: idx == root.notes_active_index;
+                                            changed is_active => {
+                                                if (self.is_active) {
+                                                    if (idx == 0) {
+                                                        root.drawer_scroll_y = 0px;
+                                                    } else {
+                                                        root.drawer_scroll_y = -self.y + 8px;
+                                                    }
+                                                }
                                             }
+
+                                            border-radius: 4px;
+                                            background: (root.notes_highlight_style != 3 && root.notes_active_index == idx)
+                                                ? (root.notes_highlight_style == 0 ? #3b82f628 : (root.notes_highlight_style == 1 ? #ffffff0d : #f59e0b1c))
+                                                : transparent;
+                                            border-width: (root.notes_highlight_style == 0 && root.notes_active_index == idx) ? 1px : 0px;
+                                            border-color: #3b82f660;
+
+                                            HorizontalLayout {
+                                                padding-left: 6px;
+                                                padding-right: 6px;
+                                                padding-top: 4px;
+                                                padding-bottom: 4px;
+                                                spacing: 6px;
+
+                                                if root.notes_highlight_style == 2 && root.notes_active_index == idx: Rectangle {
+                                                    width: 3px;
+                                                    border-radius: 1.5px;
+                                                    background: #f59e0b;
+                                                }
+
+                                                Text {
+                                                    horizontal-stretch: 1;
+                                                    wrap: word-wrap;
+                                                    text: seg.text;
+                                                    font-size: root.notes_font_size * 1px;
+                                                    font-family: root.notes_font_family;
+                                                    font-weight: (root.notes_highlight_style == 1)
+                                                        ? (root.notes_active_index == idx ? 700 : (root.notes_font_bold ? 700 : 400))
+                                                        : (root.notes_font_bold || (root.notes_highlight_style != 3 && root.notes_active_index == idx) ? 700 : 400);
+                                                    color: (root.notes_highlight_style == 1)
+                                                        ? (root.notes_active_index == idx ? #ffffff : #71717a)
+                                                        : (root.notes_active_index == idx ? #ffffff : #d4d4d8);
+                                                }
+                                            }
+
+                                            TouchArea {
+                                                mouse-cursor: pointer;
+                                                clicked => {
+                                                    root.notes_active_index = idx;
+                                                    root.set_notes_active_index(idx);
+                                                }
+                                            }
+                                        }
+
+                                        if root.notes_text == "": Text {
+                                            text: "No speaker notes found for this slide.";
+                                            color: #52525b;
+                                            font-size: 12px;
                                         }
                                     }
                                 }
-
-                                if root.notes_text == "" && !comment_input.has-focus: Text {
-                                    x: 10px;
-                                    y: 10px;
-                                    text: "✍️ Type speaker comments, LaTeX derivations, or timing notes for this slide...";
-                                    color: #52525b;
-                                    font-size: 12px;
-                                }
                             }
-                            FontControls { size: root.notes_font_size; resize(value) => { root.resize_notes_font(value); } }
                         }
                     }
                     } // panels
@@ -6096,6 +6342,35 @@ export component PresenterWindow inherits Window {
                         PanelToggle { label: "Extracted text & comments"; active: root.show_text_panel; toggled => { root.show_text_panel = !root.show_text_panel; } }
                     }
                 }
+            }
+        }
+    }
+
+    // Speaker Notes 3-Dots Options Menu Modal / Popover
+    if root.show_notes_menu: Rectangle {
+        width: 100%;
+        height: 100%;
+        z: 300;
+        TouchArea { clicked => { root.show_notes_menu = false; } }
+        Rectangle {
+            width: notes_options_drawer.preferred-width;
+            height: notes_options_drawer.preferred-height;
+            x: max(10px, min(parent.width - self.width - 10px, root.notes_menu_anchor_x - self.width + 24px));
+            y: max(10px, min(parent.height - self.height - 10px, root.notes_menu_anchor_y + 4px));
+            TouchArea { } // Absorb clicks inside popover
+
+            notes_options_drawer := NotesOptionsMenu {
+                font_size: root.notes_font_size;
+                font_family: root.notes_font_family;
+                font_bold: root.notes_font_bold;
+                always_on_top: root.notes_always_on_top;
+                show_always_on_top: root.notes_window_open;
+                highlight_style: root.notes_highlight_style;
+                resize_font(val) => { root.resize_notes_font(val); }
+                set_font_family(val) => { root.set_notes_font_family(val); }
+                toggle_font_bold(val) => { root.set_notes_font_bold(val); }
+                toggle_always_on_top(val) => { root.set_notes_always_on_top(val); }
+                set_highlight_style(val) => { root.set_notes_highlight_style(val); }
             }
         }
     }
@@ -8003,7 +8278,27 @@ export component NotesWindow inherits Window {
     in-out property <image> notes_slide_image;
     in-out property <float> note_preview_ratio: 0.32;
     in-out property <int> notes_font_size: 14;
+    in-out property <string> notes_font_family: "sans-serif";
+    in-out property <bool> notes_font_bold: false;
+    in-out property <bool> keep_on_top: false;
+    in-out property <int> notes_highlight_style: 0;
+    in-out property <int> notes_active_index: 0;
+    in-out property <[NoteSegment]> notes_segments: [];
+    property <length> drawer_scroll_y: 0px;
+    changed notes_segments => {
+        root.drawer_scroll_y = 0px;
+    }
+    in-out property <bool> notes_edit_mode: false;
+    in-out property <bool> show_options: false;
+    always-on-top: root.keep_on_top;
     callback resize_notes_font(int);
+    callback set_notes_font_family(string);
+    callback set_notes_font_bold(bool);
+    callback set_notes_always_on_top(bool);
+    callback set_notes_highlight_style(int);
+    callback set_notes_active_index(int);
+    callback next_notes_sentence();
+    callback prev_notes_sentence();
     callback update_slide_notes(int, string);
 
     VerticalLayout {
@@ -8049,111 +8344,142 @@ export component NotesWindow inherits Window {
                         vertical-alignment: center;
                     }
 
-                }
-                    HorizontalLayout {
-                        spacing: 6px;
-
-                        Rectangle {
-                            height: 22px;
-                            border-radius: 4px;
-                            background: detached_btn_bullet.has-hover ? #374151 : #27272a;
-                            HorizontalLayout {
-                                padding-left: 8px;
-                                padding-right: 8px;
-                                Text {
-                                    text: "+ Bullet";
-                                    font-size: 11px;
-                                    color: #e5e7eb;
-                                    vertical-alignment: center;
-                                }
-                            }
-                            detached_btn_bullet := TouchArea {
-                                clicked => {
-                                    root.notes_body = root.notes_body + (root.notes_body == "" ? "• " : "\n• ");
-                                    root.update_slide_notes(root.slide_num, root.notes_body);
-                                }
+                    // 3-dots options button
+                    Rectangle {
+                        width: 24px;
+                        height: 22px;
+                        border-radius: 4px;
+                        background: touch_detached_dots.has-hover || root.show_options ? #374151 : #27272a;
+                        HorizontalLayout {
+                            alignment: center;
+                            spacing: 2px;
+                            for dot_idx in 3: Rectangle {
+                                width: 3px;
+                                height: 3px;
+                                border-radius: 1.5px;
+                                background: #e5e7eb;
+                                y: (parent.height - self.height) / 2;
                             }
                         }
-
-                        Rectangle {
-                            height: 22px;
-                            border-radius: 4px;
-                            background: detached_btn_rem.has-hover ? #374151 : #27272a;
-                            HorizontalLayout {
-                                padding-left: 8px;
-                                padding-right: 8px;
-                                Text {
-                                    text: "⏰ Reminder";
-                                    font-size: 11px;
-                                    color: #fbbf24;
-                                    vertical-alignment: center;
-                                }
-                            }
-                            detached_btn_rem := TouchArea {
-                                clicked => {
-                                    root.notes_body = root.notes_body + (root.notes_body == "" ? "⏰ Reminder: " : "\n⏰ Reminder: ");
-                                    root.update_slide_notes(root.slide_num, root.notes_body);
-                                }
-                            }
-                        }
-
-                        Rectangle {
-                            height: 22px;
-                            border-radius: 4px;
-                            background: detached_btn_clr.has-hover ? #451a1a : #27272a;
-                            HorizontalLayout {
-                                padding-left: 8px;
-                                padding-right: 8px;
-                                Text {
-                                    text: "Clear";
-                                    font-size: 11px;
-                                    color: #f87171;
-                                    vertical-alignment: center;
-                                }
-                            }
-                            detached_btn_clr := TouchArea {
-                                clicked => {
-                                    root.notes_body = "";
-                                    root.update_slide_notes(root.slide_num, "");
-                                }
+                        touch_detached_dots := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.show_options = !root.show_options;
                             }
                         }
                     }
+                }
 
+                // Detached Notes Content (Highlight / Teleprompter View)
                 Rectangle {
                     vertical-stretch: 1;
                     background: #141416;
                     border-radius: 6px;
                     border-width: 1px;
-                    border-color: detached_input.has-focus ? #3b82f6 : #2e2e34;
+                    border-color: #2e2e34;
                     clip: true;
 
                     ScrollView {
+                        content-y <=> root.drawer_scroll_y;
+                        animate content-y { duration: 160ms; easing: ease-out; }
+
                         VerticalLayout {
                             padding: 10px;
+                            spacing: 5px;
 
-                            detached_input := TextInput {
-                                text: root.notes_body;
-                                color: #ffffff;
-                                font-size: root.notes_font_size * 1px;
-                                wrap: word-wrap;
-                                edited => {
-                                    root.notes_body = self.text;
-                                    root.update_slide_notes(root.slide_num, self.text);
+                            for seg[idx] in root.notes_segments: seg_item := Rectangle {
+                                property <bool> is_active: idx == root.notes_active_index;
+                                changed is_active => {
+                                    if (self.is_active) {
+                                        if (idx == 0) {
+                                            root.drawer_scroll_y = 0px;
+                                        } else {
+                                            root.drawer_scroll_y = -self.y + 10px;
+                                        }
+                                    }
                                 }
+
+                                border-radius: 4px;
+                                background: (root.notes_highlight_style != 3 && root.notes_active_index == idx)
+                                    ? (root.notes_highlight_style == 0 ? #3b82f628 : (root.notes_highlight_style == 1 ? #ffffff0d : #f59e0b1c))
+                                    : transparent;
+                                border-width: (root.notes_highlight_style == 0 && root.notes_active_index == idx) ? 1px : 0px;
+                                border-color: #3b82f660;
+
+                                HorizontalLayout {
+                                    padding-left: 8px;
+                                    padding-right: 8px;
+                                    padding-top: 5px;
+                                    padding-bottom: 5px;
+                                    spacing: 8px;
+
+                                    if root.notes_highlight_style == 2 && root.notes_active_index == idx: Rectangle {
+                                        width: 3px;
+                                        border-radius: 1.5px;
+                                        background: #f59e0b;
+                                    }
+
+                                    Text {
+                                        horizontal-stretch: 1;
+                                        wrap: word-wrap;
+                                        text: seg.text;
+                                        font-size: root.notes_font_size * 1px;
+                                        font-family: root.notes_font_family;
+                                        font-weight: (root.notes_highlight_style == 1)
+                                            ? (root.notes_active_index == idx ? 700 : (root.notes_font_bold ? 700 : 400))
+                                            : (root.notes_font_bold || (root.notes_highlight_style != 3 && root.notes_active_index == idx) ? 700 : 400);
+                                        color: (root.notes_highlight_style == 1)
+                                            ? (root.notes_active_index == idx ? #ffffff : #71717a)
+                                            : (root.notes_active_index == idx ? #ffffff : #d4d4d8);
+                                    }
+                                }
+
+                                TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => {
+                                        root.notes_active_index = idx;
+                                        root.set_notes_active_index(idx);
+                                    }
+                                }
+                            }
+
+                            if root.notes_body == "": Text {
+                                text: "No speaker notes found for this slide.";
+                                color: #52525b;
+                                font-size: 13px;
                             }
                         }
                     }
-
-                    if root.notes_body == "" && !detached_input.has-focus: Text {
-                        x: 12px;
-                        y: 12px;
-                        text: "✍️ Type speaker comments, LaTeX derivations, or timing notes for this slide...";
-                        color: #52525b;
-                        font-size: 13px;
-                    }
                 }
-                FontControls { size: root.notes_font_size; resize(value) => { root.resize_notes_font(value); } }
+            }
+        }
+    }
+
+    // Floating 3-dots options popover for detached Notes Window
+    if root.show_options: Rectangle {
+        width: 100%;
+        height: 100%;
+        z: 200;
+        TouchArea { clicked => { root.show_options = false; } }
+        Rectangle {
+            x: max(8px, parent.width - self.width - 16px);
+            y: 48px;
+            width: detached_options_menu.preferred-width;
+            height: detached_options_menu.preferred-height;
+            TouchArea { } // block clicks
+
+            detached_options_menu := NotesOptionsMenu {
+                font_size: root.notes_font_size;
+                font_family: root.notes_font_family;
+                font_bold: root.notes_font_bold;
+                always_on_top: root.keep_on_top;
+                show_always_on_top: true;
+                highlight_style: root.notes_highlight_style;
+                resize_font(val) => { root.resize_notes_font(val); }
+                set_font_family(val) => { root.set_notes_font_family(val); }
+                toggle_font_bold(val) => { root.set_notes_font_bold(val); }
+                toggle_always_on_top(val) => { root.set_notes_always_on_top(val); }
+                set_highlight_style(val) => { root.set_notes_highlight_style(val); }
             }
         }
     }

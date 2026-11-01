@@ -1,8 +1,57 @@
 //! Audience/notes pop-out windows and live speaker-notes sync.
 
-use slint::ComponentHandle;
+use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
+use std::rc::Rc;
 
 use super::context::AppContext;
+use crate::NoteSegment;
+
+pub(crate) fn parse_notes_to_segments(text: &str) -> ModelRc<NoteSegment> {
+    let mut segments = Vec::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if trimmed.starts_with('•')
+            || trimmed.starts_with('-')
+            || trimmed.starts_with('*')
+            || (trimmed.chars().next().map_or(false, |c| c.is_ascii_digit())
+                && trimmed.contains(". "))
+        {
+            segments.push(NoteSegment {
+                text: SharedString::from(trimmed),
+                is_bullet: true,
+            });
+        } else {
+            let mut current = String::new();
+            let mut chars = trimmed.chars().peekable();
+            while let Some(c) = chars.next() {
+                current.push(c);
+                if (c == '.' || c == '!' || c == '?')
+                    && (chars.peek().map_or(true, |next| next.is_whitespace()))
+                {
+                    let seg = current.trim().to_string();
+                    if !seg.is_empty() {
+                        segments.push(NoteSegment {
+                            text: SharedString::from(seg),
+                            is_bullet: false,
+                        });
+                    }
+                    current.clear();
+                }
+            }
+            let remaining = current.trim().to_string();
+            if !remaining.is_empty() {
+                segments.push(NoteSegment {
+                    text: SharedString::from(remaining),
+                    is_bullet: false,
+                });
+            }
+        }
+    }
+    ModelRc::new(Rc::new(VecModel::from(segments)))
+}
 
 /// Wires window toggles and notes editing.
 pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
@@ -169,15 +218,23 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
     // --- SPEAKER COMMENTS & NOTES REAL-TIME SYNC ---
     {
         let state = state.clone();
+        let presenter_handle = presenter_window.as_weak();
         let notes_handle = notes_window.as_weak();
         presenter_window.on_update_slide_notes(move |slide_num, new_notes| {
             let mut st = state.borrow_mut();
             let idx = (slide_num - 1) as usize;
             if idx < st.deck.slides.len() {
                 st.deck.slides[idx].notes = new_notes.to_string();
+                let segs = parse_notes_to_segments(&new_notes);
+                if let Some(p) = presenter_handle.upgrade() {
+                    if idx == st.deck.current_index {
+                        p.set_notes_segments(segs.clone());
+                    }
+                }
                 if let Some(n) = notes_handle.upgrade() {
                     if idx == st.deck.current_index {
                         n.set_notes_body(new_notes);
+                        n.set_notes_segments(segs);
                     }
                 }
             }
@@ -187,14 +244,22 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
     {
         let state = state.clone();
         let presenter_handle = presenter_window.as_weak();
+        let notes_handle = notes_window.as_weak();
         notes_window.on_update_slide_notes(move |slide_num, new_notes| {
             let mut st = state.borrow_mut();
             let idx = (slide_num - 1) as usize;
             if idx < st.deck.slides.len() {
                 st.deck.slides[idx].notes = new_notes.to_string();
+                let segs = parse_notes_to_segments(&new_notes);
                 if let Some(p) = presenter_handle.upgrade() {
                     if idx == st.deck.current_index {
-                        p.set_notes_text(new_notes);
+                        p.set_notes_text(new_notes.clone());
+                        p.set_notes_segments(segs.clone());
+                    }
+                }
+                if let Some(n) = notes_handle.upgrade() {
+                    if idx == st.deck.current_index {
+                        n.set_notes_segments(segs);
                     }
                 }
             }
@@ -246,6 +311,12 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
         }
     });
     notes_window.set_notes_font_size(presenter_window.get_notes_font_size());
+    notes_window.set_notes_font_family(presenter_window.get_notes_font_family());
+    notes_window.set_notes_font_bold(presenter_window.get_notes_font_bold());
+    notes_window.set_keep_on_top(presenter_window.get_notes_always_on_top());
+    notes_window.set_notes_highlight_style(presenter_window.get_notes_highlight_style());
+    notes_window.set_notes_active_index(presenter_window.get_notes_active_index());
+
     for from_detached in [false, true] {
         let state = state.clone();
         let presenter = presenter_window.as_weak();
@@ -266,6 +337,166 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
             notes_window.on_resize_notes_font(resize);
         } else {
             presenter_window.on_resize_notes_font(resize);
+        }
+    }
+
+    for from_detached in [false, true] {
+        let state = state.clone();
+        let presenter = presenter_window.as_weak();
+        let notes = notes_window.as_weak();
+        let set_font = move |family: slint::SharedString| {
+            let mut st = state.borrow_mut();
+            st.notes_font_family = family.to_string();
+            st.capture_settings().save_background();
+            if let Some(p) = presenter.upgrade() {
+                p.set_notes_font_family(family.clone());
+            }
+            if let Some(n) = notes.upgrade() {
+                n.set_notes_font_family(family);
+            }
+        };
+        if from_detached {
+            notes_window.on_set_notes_font_family(set_font);
+        } else {
+            presenter_window.on_set_notes_font_family(set_font);
+        }
+    }
+
+    for from_detached in [false, true] {
+        let state = state.clone();
+        let presenter = presenter_window.as_weak();
+        let notes = notes_window.as_weak();
+        let set_bold = move |bold: bool| {
+            let mut st = state.borrow_mut();
+            st.notes_font_bold = bold;
+            st.capture_settings().save_background();
+            if let Some(p) = presenter.upgrade() {
+                p.set_notes_font_bold(bold);
+            }
+            if let Some(n) = notes.upgrade() {
+                n.set_notes_font_bold(bold);
+            }
+        };
+        if from_detached {
+            notes_window.on_set_notes_font_bold(set_bold);
+        } else {
+            presenter_window.on_set_notes_font_bold(set_bold);
+        }
+    }
+
+    for from_detached in [false, true] {
+        let state = state.clone();
+        let presenter = presenter_window.as_weak();
+        let notes = notes_window.as_weak();
+        let set_top = move |always_on_top: bool| {
+            let mut st = state.borrow_mut();
+            st.notes_always_on_top = always_on_top;
+            st.capture_settings().save_background();
+            if let Some(p) = presenter.upgrade() {
+                p.set_notes_always_on_top(always_on_top);
+            }
+            if let Some(n) = notes.upgrade() {
+                n.set_keep_on_top(always_on_top);
+            }
+        };
+        if from_detached {
+            notes_window.on_set_notes_always_on_top(set_top);
+        } else {
+            presenter_window.on_set_notes_always_on_top(set_top);
+        }
+    }
+
+    for from_detached in [false, true] {
+        let state = state.clone();
+        let presenter = presenter_window.as_weak();
+        let notes = notes_window.as_weak();
+        let set_style = move |style: i32| {
+            let mut st = state.borrow_mut();
+            st.notes_highlight_style = style;
+            st.capture_settings().save_background();
+            if let Some(p) = presenter.upgrade() {
+                p.set_notes_highlight_style(style);
+            }
+            if let Some(n) = notes.upgrade() {
+                n.set_notes_highlight_style(style);
+            }
+        };
+        if from_detached {
+            notes_window.on_set_notes_highlight_style(set_style);
+        } else {
+            presenter_window.on_set_notes_highlight_style(set_style);
+        }
+    }
+
+    for from_detached in [false, true] {
+        let state = state.clone();
+        let presenter = presenter_window.as_weak();
+        let notes = notes_window.as_weak();
+        let set_idx = move |idx: i32| {
+            let mut st = state.borrow_mut();
+            st.notes_active_index = idx;
+            if let Some(p) = presenter.upgrade() {
+                p.set_notes_active_index(idx);
+            }
+            if let Some(n) = notes.upgrade() {
+                n.set_notes_active_index(idx);
+            }
+        };
+        if from_detached {
+            notes_window.on_set_notes_active_index(set_idx);
+        } else {
+            presenter_window.on_set_notes_active_index(set_idx);
+        }
+    }
+
+    for from_detached in [false, true] {
+        let state = state.clone();
+        let presenter = presenter_window.as_weak();
+        let notes = notes_window.as_weak();
+        let step_next = move || {
+            let mut st = state.borrow_mut();
+            let seg_count = if let Some(p) = presenter.upgrade() {
+                p.get_notes_segments().row_count()
+            } else {
+                0
+            };
+            if seg_count > 0 {
+                let next_idx = (st.notes_active_index + 1).min(seg_count as i32 - 1);
+                st.notes_active_index = next_idx;
+                if let Some(p) = presenter.upgrade() {
+                    p.set_notes_active_index(next_idx);
+                }
+                if let Some(n) = notes.upgrade() {
+                    n.set_notes_active_index(next_idx);
+                }
+            }
+        };
+        if from_detached {
+            notes_window.on_next_notes_sentence(step_next);
+        } else {
+            presenter_window.on_next_notes_sentence(step_next);
+        }
+    }
+
+    for from_detached in [false, true] {
+        let state = state.clone();
+        let presenter = presenter_window.as_weak();
+        let notes = notes_window.as_weak();
+        let step_prev = move || {
+            let mut st = state.borrow_mut();
+            let next_idx = (st.notes_active_index - 1).max(0);
+            st.notes_active_index = next_idx;
+            if let Some(p) = presenter.upgrade() {
+                p.set_notes_active_index(next_idx);
+            }
+            if let Some(n) = notes.upgrade() {
+                n.set_notes_active_index(next_idx);
+            }
+        };
+        if from_detached {
+            notes_window.on_prev_notes_sentence(step_prev);
+        } else {
+            presenter_window.on_prev_notes_sentence(step_prev);
         }
     }
     let sync = slint::Timer::default();
@@ -434,6 +665,18 @@ fn apply_macos_audience_titlebar_hidden(window: &slint::Window, hidden: bool) {
 
                     let sel_set_movable_bg = sel_registerName(b"setMovableByWindowBackground:\0".as_ptr() as *const c_char);
                     msg_send_bool(ns_window, sel_set_movable_bg, false);
+
+                    // Ensure the main Slint view retains first responder status for keyboard shortcuts
+                    let sel_content_view = sel_registerName(b"contentView\0".as_ptr() as *const c_char);
+                    let sel_make_first_responder = sel_registerName(b"makeFirstResponder:\0".as_ptr() as *const c_char);
+                    let msg_send_get_view: unsafe extern "C" fn(*mut c_void, *mut c_void) -> *mut c_void =
+                        std::mem::transmute(objc_msgSend as unsafe extern "C" fn());
+                    let content_view = msg_send_get_view(ns_window, sel_content_view);
+                    if !content_view.is_null() {
+                        let msg_send_resp: unsafe extern "C" fn(*mut c_void, *mut c_void, *mut c_void) =
+                            std::mem::transmute(objc_msgSend as unsafe extern "C" fn());
+                        msg_send_resp(ns_window, sel_make_first_responder, content_view);
+                    }
                 }
             }
         }

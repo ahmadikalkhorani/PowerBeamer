@@ -156,6 +156,11 @@ pub(crate) struct AppState {
     pub(crate) timer_flash_overtime: bool,
     pub(crate) timer_show_clock: bool,
     pub(crate) notes_font_size: i32,
+    pub(crate) notes_font_family: String,
+    pub(crate) notes_font_bold: bool,
+    pub(crate) notes_always_on_top: bool,
+    pub(crate) notes_highlight_style: i32,
+    pub(crate) notes_active_index: i32,
     pub(crate) timer_size: i32, // 0: S, 1: M, 2: L
     pub(crate) timer_start_on_advance: bool,
     // Slide the timer is waiting to leave before it starts (start-on-first-advance)
@@ -265,6 +270,10 @@ impl AppState {
             timer_flash_overtime: Some(self.timer_flash_overtime),
             timer_show_clock: Some(self.timer_show_clock),
             notes_font_size: Some(self.notes_font_size),
+            notes_font_family: Some(self.notes_font_family.clone()),
+            notes_font_bold: Some(self.notes_font_bold),
+            notes_always_on_top: Some(self.notes_always_on_top),
+            notes_highlight_style: Some(self.notes_highlight_style),
             audience_borderless: Some(self.audience_borderless),
             audience_always_on_top: Some(self.audience_always_on_top),
             timer_size: Some(self.timer_size),
@@ -313,6 +322,10 @@ impl AppState {
             timer_flash_overtime,
             timer_show_clock,
             notes_font_size,
+            notes_font_family,
+            notes_font_bold,
+            notes_always_on_top,
+            notes_highlight_style,
             audience_borderless,
             audience_always_on_top,
             timer_size,
@@ -410,6 +423,11 @@ impl AppState {
         p.set_timer_flash_overtime(self.timer_flash_overtime);
         p.set_timer_show_clock(self.timer_show_clock);
         p.set_notes_font_size(self.notes_font_size.clamp(8, 48));
+        p.set_notes_font_family(slint::SharedString::from(&self.notes_font_family));
+        p.set_notes_font_bold(self.notes_font_bold);
+        p.set_notes_always_on_top(self.notes_always_on_top);
+        p.set_notes_highlight_style(self.notes_highlight_style);
+        p.set_notes_active_index(self.notes_active_index);
         p.set_audience_borderless(self.audience_borderless);
         p.set_audience_always_on_top(self.audience_always_on_top);
         p.set_timer_size(self.timer_size);
@@ -581,6 +599,11 @@ impl AppState {
             timer_flash_overtime: true,
             timer_show_clock: false,
             notes_font_size: 14,
+            notes_font_family: "sans-serif".to_string(),
+            notes_font_bold: false,
+            notes_always_on_top: false,
+            notes_highlight_style: 0,
+            notes_active_index: 0,
             timer_size: 0,
             timer_start_on_advance: false,
             timer_armed_at_slide: None,
