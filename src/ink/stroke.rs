@@ -387,7 +387,12 @@ impl LaserTrail {
         if let Some(last) = current_stroke.last_mut() {
             let dx = x - last.0;
             let dy = y - last.1;
-            if dx * dx + dy * dy < 1e-7 {
+            let dist_sq = dx * dx + dy * dy;
+            // Apple Pencil and high-rate digitisers emit micro-events at 120-240Hz.
+            // When drawing lines, discard micro-jitter (sub-pixel drift < ~0.0012 normalized units,
+            // ~2px on a 1600px screen) by updating the timestamp of the latest point.
+            let min_thresh_sq = if self.draw_lines { 0.0012 * 0.0012 } else { 1e-7 };
+            if dist_sq < min_thresh_sq {
                 last.2 = now_ms;
                 return;
             }

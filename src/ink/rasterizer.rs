@@ -351,7 +351,7 @@ impl InkingRasterizer {
         let band_of = |i: f32| ((i.clamp(0.0, 1.0) * LASER_BAND_COUNT as f32).ceil() as usize).clamp(1, LASER_BAND_COUNT) - 1;
         let mut commands = vec![String::new(); LASER_BAND_COUNT];
         let put = |cmd: &mut String, op: char, x: f32, y: f32| {
-            let _ = write!(cmd, "{}{:.1} {:.1} ", op, x.clamp(0.0, 1.0) * 1000.0, y.clamp(0.0, 1.0) * 1000.0);
+            let _ = write!(cmd, "{}{:.2} {:.2} ", op, x.clamp(0.0, 1.0) * 1000.0, y.clamp(0.0, 1.0) * 1000.0);
         };
         for stroke in &strokes {
             // Consecutive segments in the same band are chained into one polyline
