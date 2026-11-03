@@ -185,7 +185,9 @@ pub(crate) fn wire(ctx: &AppContext) -> Vec<slint::Timer> {
                         st.media_playback_started = Some(std::time::Instant::now());
                         st.media_playback_start_offset = 0.0;
                     } else {
-                        st.media_current_time_secs = 0.0;
+                        // Pause at EOF matching video behavior: keep current_time at duration and progress at 1.0.
+                        // When play is pressed again at EOF, on_play_media / start_playback_fn automatically restarts from 0.0.
+                        st.media_current_time_secs = st.media_duration_secs;
                         st.media_playing = false;
                         st.media_playback_started = None;
                     }

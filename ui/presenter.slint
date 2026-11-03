@@ -6057,6 +6057,53 @@ export component PresenterWindow inherits Window {
                                     }
                                 }
                             }
+
+                            // 5. Loop Track Playback Toggle
+                            Rectangle {
+                                height: 32px;
+                                border-radius: 8px;
+                                background: loop_touch.has-hover ? #262630 : transparent;
+
+                                HorizontalLayout {
+                                    padding-left: 4px;
+                                    padding-right: 4px;
+                                    alignment: space-between;
+
+                                    Text {
+                                        text: "Loop Audio Playback";
+                                        font-size: 11px;
+                                        font-weight: 600;
+                                        color: #e4e4e7;
+                                        vertical-alignment: center;
+                                    }
+
+                                    Rectangle {
+                                        width: 38px;
+                                        height: 20px;
+                                        border-radius: 10px;
+                                        background: root.media_track_loop ? #3b82f6 : #3f3f46;
+                                        y: (parent.height - self.height) / 2;
+
+                                        Rectangle {
+                                            width: 16px;
+                                            height: 16px;
+                                            border-radius: 8px;
+                                            background: #ffffff;
+                                            x: root.media_track_loop ? 20px : 2px;
+                                            y: 2px;
+                                            animate x { duration: 120ms; easing: ease-out; }
+                                        }
+                                    }
+                                }
+
+                                loop_touch := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => {
+                                        root.media_track_loop = !root.media_track_loop;
+                                        root.set_media_track_loop(root.media_track_loop);
+                                    }
+                                }
+                            }
                         }
                     }
                 }
